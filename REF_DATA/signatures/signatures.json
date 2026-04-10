@@ -111,7 +111,8 @@
         "Author" : "Quentin."},
     "medium_CTA_ICA" : {
         "geneset" : {
-            "XAGE1A" : 1, "CTAG2" : 1,
+            "XAGE1A" : 1, 
+            "CTAG2" : 1,
             "MAGEA3" : 1,
             "MAGEC1" : 1,
             "MAGEA10" : 1,

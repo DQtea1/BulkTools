@@ -1,5 +1,5 @@
 {
-"anti-PD1" : {  
+"geneset_anti-PD1" : {  
     "T_cell_inflammed" : {
         "geneset" : {
             "PSMB10" : 1,
@@ -160,7 +160,16 @@
         "source" : "Samia and co",
         "Author" : "Samia and coco"
         }
+    },
+"signatures_anti-PD1" : {
+    "chromatin_CTA_ITG" : {
+        "geneset" : {
+            "chromatin_modif" : -0.510978,
+            "CTA_long" : -0.715641,
+            "integrin_cell_surface_interact_LE" : 0.406791
+             },
+        "source" : "MonoV2, best combination of features LogReg model.",
+        "Author" : "Quentin."
+        }
     }
 }
-
-

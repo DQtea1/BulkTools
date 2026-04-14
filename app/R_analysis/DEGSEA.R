@@ -7,23 +7,36 @@ library(jsonlite)
 library(fgsea)
 
 
-DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, contrast, control, test, output_dir, pathways_to_use,
+DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filters, output_dir, pathways_to_use,
                         filter_by_gene = NULL, keep_low_or_high = NULL, quantile_thr = NULL, covariates = NULL, 
                         clinic_filters = NULL)
     {
+    condition_col = "DEGSEA_group"
+    control_filters = normalize_clinic_filters(control_filters)
+    test_filters = normalize_clinic_filters(test_filters)
+
+    if (is.null(control_filters)) {
+        stop("At least one control-group filter is required.")
+    }
+
+    if (is.null(test_filters)) {
+        stop("At least one test-group filter is required.")
+    }
+
+    comparison_suffix = comparison_filters_path_suffix(control_filters, test_filters)
+
     if(!is.null(covariates))
     {
-        str(covariates)
-        vars <- c(covariates, contrast)
+        vars <- c(covariates, condition_col)
         DESeq_design <- reformulate(vars)
-    }else{DESeq_design = reformulate(contrast)
-          vars = contrast}
+    }else{DESeq_design = reformulate(condition_col)
+          vars = condition_col}
 
 
     pathways_name = pathways_to_use
     selected_pathways = get(pathways_to_use) # "all_pathways" "REACTOME_pathways", "GOBP_pathways", "KEGG_pathways", "nerve_sigs", "nerve_signatures", "final_nerve_signatures"
 
-    parsed_design = gsub("~", "", gsub(" ", "", DESeq_design))[2]  # Will be used for the path of the save directory
+    parsed_design = paste0(gsub("~", "", gsub(" ", "", DESeq_design))[2], "__", comparison_suffix)  # Will be used for the path of the save directory
 
     # Filter on clinic and gene selections before downstream analyses.
     filtered_data = filtering_on_clinic_and_genes(clinic_annot, rnafilt_counts, 
@@ -42,13 +55,39 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, contrast, control, test, o
 
     #### Remove NA and align clinic annot and RNAseq
     rownames(clinic_annot) = clinic_annot$ID_Patient
-    clinicannot_noNA = clinic_annot[!is.na(clinic_annot[[contrast]]) &
-                                    clinic_annot$ID_Patient %in% colnames(rnafilt_counts), ]
+    control_ids = matching_clinic_sample_ids(clinic_annot, control_filters)
+    test_ids = matching_clinic_sample_ids(clinic_annot, test_filters)
 
-    clinicannot_noNA = clinicannot_noNA[clinicannot_noNA[[contrast]] %in% c(control, test), ]
+    control_ids = intersect(control_ids, colnames(rnafilt_counts))
+    test_ids = intersect(test_ids, colnames(rnafilt_counts))
+
+    if (length(control_ids) == 0) {
+        stop("The control-group filters do not match any sample after filtering.")
+    }
+
+    if (length(test_ids) == 0) {
+        stop("The test-group filters do not match any sample after filtering.")
+    }
+
+    overlapping_ids = intersect(control_ids, test_ids)
+    if (length(overlapping_ids) > 0) {
+        stop(sprintf(
+            "Some samples match both control and test definitions: %s",
+            paste(head(overlapping_ids, 10), collapse = ", ")
+        ))
+    }
+
+    selected_ids = union(control_ids, test_ids)
+    clinicannot_noNA = clinic_annot[
+        clinic_annot$ID_Patient %in% selected_ids &
+        clinic_annot$ID_Patient %in% colnames(rnafilt_counts),
+        ,
+        drop = FALSE
+    ]
+    clinicannot_noNA[[condition_col]] = ifelse(clinicannot_noNA$ID_Patient %in% control_ids, "control", "test")
 
     if (!is.null(covariates)) {
-        for (covar in vars) {
+        for (covar in covariates) {
             clinicannot_noNA = clinicannot_noNA[
                 !is.na(clinicannot_noNA[[covar]]) &
                 clinicannot_noNA$ID_Patient %in% colnames(rnafilt_counts),
@@ -65,21 +104,28 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, contrast, control, test, o
     , rownames(clinicannot_noNA),
     drop = FALSE
     ]
-    clinicannot_noNA[[contrast]] = factor(clinicannot_noNA[[contrast]], levels = c(control, test))  
+    clinicannot_noNA[[condition_col]] = factor(clinicannot_noNA[[condition_col]], levels = c("control", "test"))
+
+    control_ids = intersect(control_ids, rownames(clinicannot_noNA))
+    test_ids = intersect(test_ids, rownames(clinicannot_noNA))
+
+    if (length(control_ids) == 0 || length(test_ids) == 0) {
+        stop("At least one DESeq group became empty after applying covariate filtering.")
+    }
 
 
     ## RUN DESeq ##
     DESeq_dds = doDGEv2(rnamat = round(rnafilt_noNA),
                       annot = clinicannot_noNA,
                       design = DESeq_design,
-                      condition = contrast,
-                      modalities_control = control,
-                      modalities_test = test
+                      condition = condition_col,
+                      modalities_control = "control",
+                      modalities_test = "test"
                       )
                       
     # doDGEv2 collapses the selected modalities into the binary levels
     # "control" and "test" inside the DESeq2 object.
-    DESeq_res = results(DESeq_dds, contrast = c(contrast, "test", "control"))
+    DESeq_res = results(DESeq_dds, contrast = c(condition_col, "test", "control"))
 
 
     ## SAVE_RESULTS ##
@@ -97,7 +143,6 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, contrast, control, test, o
     padj = DESeq_res$padj
     )
 
-    ctrl_group = "control"
     tt_group = gsub("~", "", DESeq_design)[2]
 
     df$log2FoldChange[is.na(df$log2FoldChange)] = 0
@@ -106,9 +151,6 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, contrast, control, test, o
     df$color = "NS"  # Non significatif
     df$color[df$log2FoldChange <= -log2FC_threshold & df$padj < pval_threshold] = "Down"
     df$color[df$log2FoldChange >= log2FC_threshold & df$padj < pval_threshold] = "Up"
-
-    # df$direction = ifelse(df$log2FoldChange > 1, control, 
-    #                            ifelse(df$log2FoldChange < -1, test, "NS"))
 
     df_down = df[which(df$log2FoldChange <0),]
     top_genes_down = df_down[order(df_down$padj, decreasing = FALSE), ][1:500, ] ### top 50 meilleurs gene auront leur label d'écrit
@@ -124,8 +166,8 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, contrast, control, test, o
         theme_minimal() +
         labs(title = paste("Differential gene expression on", gsub("~", "", DESeq_design) ,"factor")[2], x = "Log2 Fold Change", y = "padj") +
         theme(legend.position = "none") +
-        annotate(geom = 'text', label = paste0("Up in ", control), x = -Inf, y = 0, hjust = 0, vjust = 0) +
-        annotate(geom = 'text', label = paste0("Up in ", test), x = Inf, y = 0, hjust = 1, vjust = 0)
+        annotate(geom = 'text', label = "Up in control", x = -Inf, y = 0, hjust = 0, vjust = 0) +
+        annotate(geom = 'text', label = "Up in test", x = Inf, y = 0, hjust = 1, vjust = 0)
 
 
     paste0(output_DESeq, "top_genes_down_500.csv")
@@ -147,7 +189,7 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, contrast, control, test, o
     ranked_gene_df = as.data.frame(ranked_gene_vec, col.names = FALSE)
     ranked_gene_df$Genes = rownames(ranked_gene_df)
     colnames(ranked_gene_df) = c("Score", "Genes")
-    print(paste("GSEA classes are:", control, "VS", test))
+    print("GSEA classes are: control VS test")
 
     if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
     write.table(ranked_gene_df, paste0(output_DESeq, "/ranked_genes.rnk"))
@@ -180,7 +222,7 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, contrast, control, test, o
     
     # On les met en no_NA pour la colonne de réponse
     rnafilt_norm = normVST_bulk(round(rnafilt_counts))
-    clinicannot_noNA = clinic_annot[!is.na(clinic_annot[[contrast]])
+    clinicannot_noNA = clinic_annot[clinic_annot$ID_Patient %in% selected_ids
                                         & clinic_annot$ID_Patient %in% colnames(rnafilt_norm), ]
     rnafilt_norm_noNA = rnafilt_norm[, colnames(rnafilt_norm) %in% clinicannot_noNA$ID_Patient]
     rnafilt_norm_noNA = rnafilt_norm_noNA[, rownames(clinicannot_noNA)]  # On les met dans le même ordre

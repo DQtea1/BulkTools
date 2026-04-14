@@ -98,6 +98,42 @@ clinic_filters_path_suffix <- function(clinic_filters) {
 }
 
 
+matching_clinic_sample_ids <- function(clinic_annot, clinic_filters, sample_id_col = "ID_Patient") {
+  normalized_filters <- normalize_clinic_filters(clinic_filters)
+
+  if (is.null(normalized_filters)) {
+    return(character(0))
+  }
+
+  if (!sample_id_col %in% colnames(clinic_annot)) {
+    stop(sprintf("Sample ID column '%s' not found in clinic_annot.", sample_id_col))
+  }
+
+  keep_samples <- rep(TRUE, nrow(clinic_annot))
+
+  for (filter_name in names(normalized_filters)) {
+    if (!filter_name %in% colnames(clinic_annot)) {
+      stop(sprintf("Clinical column '%s' not found in clinic_annot.", filter_name))
+    }
+
+    keep_samples <- keep_samples & clinic_annot[, filter_name] %in% normalized_filters[[filter_name]]
+  }
+
+  sample_ids <- as.character(clinic_annot[[sample_id_col]][keep_samples])
+  sample_ids <- trimws(sample_ids)
+  unique(sample_ids[!is.na(sample_ids) & nzchar(sample_ids)])
+}
+
+
+comparison_filters_path_suffix <- function(control_filters, test_filters) {
+  paste0(
+    "control__", clinic_filters_path_suffix(control_filters),
+    "__VS__",
+    "test__", clinic_filters_path_suffix(test_filters)
+  )
+}
+
+
 filtering_on_clinic_and_genes <- function(clinic_annot = NULL, 
                                           rnafilt_counts = NULL, 
                                           output_dir = NULL,
@@ -120,9 +156,6 @@ filtering_on_clinic_and_genes <- function(clinic_annot = NULL,
   normalized_clinic_filters <- normalize_clinic_filters(clinic_filters)
   clinic_suffix <- clinic_filters_path_suffix(normalized_clinic_filters)
 
-  message("normalized_clinic_filters: ", normalized_clinic_filters)
-  message("clinic_suffix: ", clinic_suffix)
-
   # Filter using clinic annotations
   if (!is.null(normalized_clinic_filters)) {
     keep_samples <- rep(TRUE, nrow(clinic_annot))
@@ -140,9 +173,6 @@ filtering_on_clinic_and_genes <- function(clinic_annot = NULL,
   } else {
     filt_on_clin <- FALSE
   }
-
-  message("clinic_annot : ", clinic_annot )
-  message("keep_samples : ", keep_samples)
 
   # Filter using a gene expression level
   if (!is.null(filter_by_gene) &&
@@ -205,8 +235,6 @@ filtering_on_clinic_and_genes <- function(clinic_annot = NULL,
   } else {
     output_path <- paste0(output_dir, "/", folder_name, "/", suffix_parts, "/", parsed_design)
   }
-
-  message("output_path: ", output_path)
   
   return(list(
     clinic_annot = clinic_annot, 

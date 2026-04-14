@@ -98,6 +98,52 @@ clinic_filters_path_suffix <- function(clinic_filters) {
 }
 
 
+normalize_group_gene_filter <- function(group_gene_filter) {
+  if (is.null(group_gene_filter)) {
+    return(NULL)
+  }
+
+  gene_name <- trimws(as.character(group_gene_filter$gene))
+  if (length(gene_name) == 0 || is.na(gene_name) || !nzchar(gene_name)) {
+    return(NULL)
+  }
+
+  quantile_thr <- suppressWarnings(as.numeric(group_gene_filter$quantile_thr)[1])
+  keep_low_or_high <- trimws(as.character(group_gene_filter$keep_low_or_high)[1])
+
+  if (is.na(quantile_thr) || quantile_thr < 0 || quantile_thr > 1) {
+    stop("Group gene-filter quantile must be a single numeric value between 0 and 1.")
+  }
+
+  if (!keep_low_or_high %in% c("low", "high")) {
+    stop("Group gene-filter direction must be either 'low' or 'high'.")
+  }
+
+  list(
+    gene = gene_name,
+    quantile_thr = quantile_thr,
+    keep_low_or_high = keep_low_or_high
+  )
+}
+
+
+gene_filter_path_suffix <- function(group_gene_filter) {
+  normalized_gene_filter <- normalize_group_gene_filter(group_gene_filter)
+
+  if (is.null(normalized_gene_filter)) {
+    return(NULL)
+  }
+
+  paste(
+    "gene",
+    sanitize_filter_token(normalized_gene_filter$gene),
+    sanitize_filter_token(normalized_gene_filter$keep_low_or_high),
+    paste0("q", sanitize_filter_token(normalized_gene_filter$quantile_thr)),
+    sep = "-"
+  )
+}
+
+
 matching_clinic_sample_ids <- function(clinic_annot, clinic_filters, sample_id_col = "ID_Patient") {
   normalized_filters <- normalize_clinic_filters(clinic_filters)
 
@@ -125,11 +171,87 @@ matching_clinic_sample_ids <- function(clinic_annot, clinic_filters, sample_id_c
 }
 
 
-comparison_filters_path_suffix <- function(control_filters, test_filters) {
+matching_gene_sample_ids <- function(rnafilt_counts, group_gene_filter) {
+  normalized_gene_filter <- normalize_group_gene_filter(group_gene_filter)
+
+  if (is.null(normalized_gene_filter)) {
+    return(character(0))
+  }
+
+  if (is.data.frame(rnafilt_counts)) {
+    rnafilt_counts <- as.matrix(rnafilt_counts)
+  }
+
+  if (!normalized_gene_filter$gene %in% rownames(rnafilt_counts)) {
+    stop(sprintf("Gene '%s' not found in rnafilt_counts.", normalized_gene_filter$gene))
+  }
+
+  gene_expr <- as.numeric(rnafilt_counts[normalized_gene_filter$gene, ])
+  thr <- quantile(gene_expr, probs = normalized_gene_filter$quantile_thr, na.rm = TRUE)
+
+  if (normalized_gene_filter$keep_low_or_high == "low") {
+    keep_samples <- gene_expr < thr
+  } else {
+    keep_samples <- gene_expr > thr
+  }
+
+  sample_ids <- colnames(rnafilt_counts)[keep_samples]
+  sample_ids <- trimws(as.character(sample_ids))
+  unique(sample_ids[!is.na(sample_ids) & nzchar(sample_ids)])
+}
+
+
+matching_group_sample_ids <- function(clinic_annot,
+                                      rnafilt_counts,
+                                      clinic_filters = NULL,
+                                      group_gene_filter = NULL,
+                                      sample_id_col = "ID_Patient") {
+  if (!sample_id_col %in% colnames(clinic_annot)) {
+    stop(sprintf("Sample ID column '%s' not found in clinic_annot.", sample_id_col))
+  }
+
+  clinic_ids <- as.character(clinic_annot[[sample_id_col]])
+  clinic_ids <- trimws(clinic_ids)
+  clinic_ids <- unique(clinic_ids[!is.na(clinic_ids) & nzchar(clinic_ids)])
+
+  if (!is.null(normalize_clinic_filters(clinic_filters))) {
+    clinic_ids <- intersect(clinic_ids, matching_clinic_sample_ids(clinic_annot, clinic_filters, sample_id_col))
+  }
+
+  if (!is.null(normalize_group_gene_filter(group_gene_filter))) {
+    clinic_ids <- intersect(clinic_ids, matching_gene_sample_ids(rnafilt_counts, group_gene_filter))
+  }
+
+  clinic_ids
+}
+
+
+group_definition_path_suffix <- function(clinic_filters = NULL, group_gene_filter = NULL) {
+  suffix_parts <- character(0)
+
+  clinic_suffix <- clinic_filters_path_suffix(clinic_filters)
+  if (!identical(clinic_suffix, "nofilt")) {
+    suffix_parts <- c(suffix_parts, clinic_suffix)
+  }
+
+  gene_suffix <- gene_filter_path_suffix(group_gene_filter)
+  if (!is.null(gene_suffix)) {
+    suffix_parts <- c(suffix_parts, gene_suffix)
+  }
+
+  if (length(suffix_parts) == 0) {
+    return("nofilt")
+  }
+
+  paste(suffix_parts, collapse = "__")
+}
+
+
+comparison_filters_path_suffix <- function(control_filters, test_filters, control_gene_filter = NULL, test_gene_filter = NULL) {
   paste0(
-    "control__", clinic_filters_path_suffix(control_filters),
+    "control__", group_definition_path_suffix(control_filters, control_gene_filter),
     "__VS__",
-    "test__", clinic_filters_path_suffix(test_filters)
+    "test__", group_definition_path_suffix(test_filters, test_gene_filter)
   )
 }
 

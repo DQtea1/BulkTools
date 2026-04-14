@@ -73,7 +73,27 @@ mod_degsea_ui <- function(id) {
               class = "text-muted small mb-2",
               "Samples kept in control must match all rows below."
             ),
-            uiOutput(ns("control_filters_ui"))
+            uiOutput(ns("control_filters_ui")),
+            tags$hr(class = "my-3"),
+            tags$p(
+              class = "text-muted small mb-2",
+              "Optional expression rule: leave the gene empty to disable it."
+            ),
+            selectizeInput(
+              ns("control_group_gene"), "Expression gene :",
+              choices = character(0),
+              multiple = FALSE,
+              options = list(placeholder = "Type a gene symbol…")
+            ),
+            numericInput(
+              ns("control_group_quantile"), "Expression quantile :",
+              value = 0.6, min = 0, max = 1, step = 0.05
+            ),
+            selectInput(
+              ns("control_group_low_or_high"), "Keep low or high expression :",
+              choices = c("low (< quantile)" = "low", "high (> quantile)" = "high"),
+              multiple = FALSE, selectize = FALSE, size = 2
+            )
           ),
           div(
             class = "border rounded p-3 mb-3",
@@ -91,7 +111,27 @@ mod_degsea_ui <- function(id) {
               class = "text-muted small mb-2",
               "Samples kept in test must match all rows below."
             ),
-            uiOutput(ns("test_filters_ui"))
+            uiOutput(ns("test_filters_ui")),
+            tags$hr(class = "my-3"),
+            tags$p(
+              class = "text-muted small mb-2",
+              "Optional expression rule: leave the gene empty to disable it."
+            ),
+            selectizeInput(
+              ns("test_group_gene"), "Expression gene :",
+              choices = character(0),
+              multiple = FALSE,
+              options = list(placeholder = "Type a gene symbol…")
+            ),
+            numericInput(
+              ns("test_group_quantile"), "Expression quantile :",
+              value = 0.6, min = 0, max = 1, step = 0.05
+            ),
+            selectInput(
+              ns("test_group_low_or_high"), "Keep low or high expression :",
+              choices = c("low (< quantile)" = "low", "high (> quantile)" = "high"),
+              multiple = FALSE, selectize = FALSE, size = 2
+            )
           ),
           selectInput(
             ns("GSEA_geneset"), "GSEA geneset : *",
@@ -133,6 +173,22 @@ mod_degsea_server <- function(id, roots = c(home = "~")) {
       values <- clinic_df()[[clinic_col]]
       choices <- if (is.factor(values)) levels(values) else sort(unique(as.character(values)))
       choices[!is.na(choices) & nzchar(choices)]
+    }
+
+    collect_group_gene_filter <- function(gene_input_id, quantile_input_id, direction_input_id) {
+      reactive({
+        gene_name <- trimws(if (is.null(input[[gene_input_id]])) "" else as.character(input[[gene_input_id]]))
+
+        if (!nzchar(gene_name)) {
+          return(NULL)
+        }
+
+        list(
+          gene = gene_name,
+          quantile_thr = input[[quantile_input_id]],
+          keep_low_or_high = input[[direction_input_id]]
+        )
+      })
     }
 
     create_filter_state <- function() {
@@ -274,6 +330,8 @@ mod_degsea_server <- function(id, roots = c(home = "~")) {
     clinic_filters <- collect_named_filters(clinic_filter_state, "clinic", "clinical")
     control_filters <- collect_named_filters(control_filter_state, "control", "control group")
     test_filters <- collect_named_filters(test_filter_state, "test", "test group")
+    control_gene_filter <- collect_group_gene_filter("control_group_gene", "control_group_quantile", "control_group_low_or_high")
+    test_gene_filter <- collect_group_gene_filter("test_group_gene", "test_group_quantile", "test_group_low_or_high")
 
     render_filter_set(clinic_filter_state, "clinic", "No clinical filter added yet.")
     render_filter_set(control_filter_state, "control", "No control-group filter added yet.")
@@ -288,6 +346,8 @@ mod_degsea_server <- function(id, roots = c(home = "~")) {
       req(bulk_df())
       genes <- rownames(bulk_df())
       updateSelectizeInput(session, "gene_filt", choices = genes, server = TRUE)
+      updateSelectizeInput(session, "control_group_gene", choices = genes, server = TRUE)
+      updateSelectizeInput(session, "test_group_gene", choices = genes, server = TRUE)
     })
 
     # update clinic column lists
@@ -317,7 +377,6 @@ mod_degsea_server <- function(id, roots = c(home = "~")) {
     degsea_res <- eventReactive(input$run_DEGSEA, {
       req(
         clinic_df(), bulk_df(),
-        control_filters(), test_filters(),
         input$GSEA_geneset, output_dir_path()
       )
 
@@ -332,6 +391,8 @@ mod_degsea_server <- function(id, roots = c(home = "~")) {
           output_dir         = output_dir_path(),
           covariates         = input$DESeq_covar,
           clinic_filters     = clinic_filters(),
+          control_gene_filter = control_gene_filter(),
+          test_gene_filter    = test_gene_filter(),
           filter_by_gene     = input$gene_filt,
           quantile_thr       = input$quantile,
           keep_low_or_high   = input$low_or_high

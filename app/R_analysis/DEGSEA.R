@@ -9,21 +9,28 @@ library(fgsea)
 
 DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filters, output_dir, pathways_to_use,
                         filter_by_gene = NULL, keep_low_or_high = NULL, quantile_thr = NULL, covariates = NULL, 
-                        clinic_filters = NULL)
+                        clinic_filters = NULL, control_gene_filter = NULL, test_gene_filter = NULL)
     {
     condition_col = "DEGSEA_group"
     control_filters = normalize_clinic_filters(control_filters)
     test_filters = normalize_clinic_filters(test_filters)
+    control_gene_filter = normalize_group_gene_filter(control_gene_filter)
+    test_gene_filter = normalize_group_gene_filter(test_gene_filter)
 
-    if (is.null(control_filters)) {
-        stop("At least one control-group filter is required.")
+    if (is.null(control_filters) && is.null(control_gene_filter)) {
+        stop("At least one control-group clinic or gene filter is required.")
     }
 
-    if (is.null(test_filters)) {
-        stop("At least one test-group filter is required.")
+    if (is.null(test_filters) && is.null(test_gene_filter)) {
+        stop("At least one test-group clinic or gene filter is required.")
     }
 
-    comparison_suffix = comparison_filters_path_suffix(control_filters, test_filters)
+    comparison_suffix = comparison_filters_path_suffix(
+        control_filters = control_filters,
+        test_filters = test_filters,
+        control_gene_filter = control_gene_filter,
+        test_gene_filter = test_gene_filter
+    )
 
     if(!is.null(covariates))
     {
@@ -55,8 +62,18 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filt
 
     #### Remove NA and align clinic annot and RNAseq
     rownames(clinic_annot) = clinic_annot$ID_Patient
-    control_ids = matching_clinic_sample_ids(clinic_annot, control_filters)
-    test_ids = matching_clinic_sample_ids(clinic_annot, test_filters)
+    control_ids = matching_group_sample_ids(
+        clinic_annot = clinic_annot,
+        rnafilt_counts = rnafilt_counts,
+        clinic_filters = control_filters,
+        group_gene_filter = control_gene_filter
+    )
+    test_ids = matching_group_sample_ids(
+        clinic_annot = clinic_annot,
+        rnafilt_counts = rnafilt_counts,
+        clinic_filters = test_filters,
+        group_gene_filter = test_gene_filter
+    )
 
     control_ids = intersect(control_ids, colnames(rnafilt_counts))
     test_ids = intersect(test_ids, colnames(rnafilt_counts))

@@ -3,7 +3,7 @@
 signature_proj_pipe = function(rnafilt_counts, clinic_annot, 
                                 output_dir, therapy_used, signature_name,
                                 signature_to_use, sample_to_project_path, 
-                                contrast, resp_var, non_resp_var, filter_on_clin_col, kept_modality,
+                                contrast, resp_var, non_resp_var, clinic_filters = NULL,
                                 filter_by_gene, keep_low_or_high, quantile_thr,
                                 survival_time_col = "delpfs", event_realization_col = "PFS", 
                                 sample_ID_col = "ID_Patient", group_quantile = "median"){
@@ -17,8 +17,7 @@ signature_proj_pipe = function(rnafilt_counts, clinic_annot,
 
     # Filtering samples on selected gene's expression and clinic features
     filtered_data = filtering_on_clinic_and_genes(clinic_annot, rnafilt_counts, 
-                                                  filter_on_clin_col = filter_on_clin_col, 
-                                                  kept_modality      = kept_modality, 
+                                                  clinic_filters     = clinic_filters,
                                                   filter_by_gene     = filter_by_gene, 
                                                   keep_low_or_high   = keep_low_or_high, 
                                                   quantile_thr       = quantile_thr,

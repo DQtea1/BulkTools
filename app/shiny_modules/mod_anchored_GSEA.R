@@ -18,16 +18,18 @@ mod_anchored_gsea_ui <- function(id) {
 
         accordion_panel(
           "Filtering on clinic",
-          selectInput(
-            ns("clinic_filt"), "Filter on clin column :",
-            choices = character(0),
-            multiple = FALSE, selectize = FALSE, size = 7
-          ),
-          selectInput(
-            ns("kept_modality"), "Kept modality :",
-            choices = character(0),
-            multiple = TRUE, selectize = FALSE, size = 7
+          div(
+            class = "d-flex justify-content-between align-items-center mb-2",
+            tags$span("Add one or more clinical filters"),
+            actionButton(
+              ns("add_clinic_filter"),
+              label = NULL,
+              icon = icon("plus"),
+              class = "btn btn-sm btn-outline-primary"
+            )
           )
+          ,
+          uiOutput(ns("clinic_filters_ui"))
         ),
 
         accordion_panel(
@@ -85,6 +87,7 @@ mod_anchored_gsea_ui <- function(id) {
 
 mod_anchored_gsea_server <- function(id, roots = c(home = "~")) {
   moduleServer(id, function(input, output, session) {
+    ns <- session$ns
 
     clinic_df <- reactive({
       read_delim_auto(input$clinic_file)
@@ -92,6 +95,97 @@ mod_anchored_gsea_server <- function(id, roots = c(home = "~")) {
 
     bulk_df <- reactive({
       read_delim_auto(input$bulk_file)
+    })
+
+    clinic_filter_state <- reactiveValues(ids = integer(), next_id = 0)
+
+    clinic_modality_choices <- function(clinic_col) {
+      req(clinic_df(), clinic_col)
+      values <- clinic_df()[[clinic_col]]
+      choices <- if (is.factor(values)) levels(values) else sort(unique(as.character(values)))
+      choices[!is.na(choices) & nzchar(choices)]
+    }
+
+    clinic_filters <- reactive({
+      if (length(clinic_filter_state$ids) == 0) {
+        return(NULL)
+      }
+
+      selected_filters <- list()
+
+      for (filter_id in clinic_filter_state$ids) {
+        clinic_col <- input[[paste0("clinic_filter_col_", filter_id)]]
+        clinic_col <- trimws(if (is.null(clinic_col)) "" else as.character(clinic_col))
+
+        modalities <- input[[paste0("clinic_filter_modalities_", filter_id)]]
+        modalities <- as.character(modalities)
+        modalities <- trimws(modalities)
+        modalities <- modalities[!is.na(modalities) & nzchar(modalities)]
+
+        if (!nzchar(clinic_col)) {
+          next
+        }
+
+        if (length(modalities) == 0) {
+          stop(sprintf("Please select at least one modality for clinical filter '%s'.", clinic_col))
+        }
+
+        selected_filters[[clinic_col]] <- sort(unique(c(selected_filters[[clinic_col]], modalities)))
+      }
+
+      if (length(selected_filters) == 0) {
+        return(NULL)
+      }
+
+      selected_filters[sort(names(selected_filters))]
+    })
+
+    output$clinic_filters_ui <- renderUI({
+      clinic_cols <- if (isTruthy(input$clinic_file)) names(clinic_df()) else character(0)
+
+      if (length(clinic_filter_state$ids) == 0) {
+        return(tags$p(class = "text-muted mb-0", "No clinical filter added yet."))
+      }
+
+      tagList(lapply(clinic_filter_state$ids, function(filter_id) {
+        col_input_id <- paste0("clinic_filter_col_", filter_id)
+        mod_input_id <- paste0("clinic_filter_modalities_", filter_id)
+        remove_input_id <- paste0("remove_clinic_filter_", filter_id)
+
+        selected_col <- isolate(input[[col_input_id]])
+        selected_modalities <- isolate(input[[mod_input_id]])
+        modality_choices <- if (!is.null(selected_col) && nzchar(selected_col)) {
+          clinic_modality_choices(selected_col)
+        } else {
+          character(0)
+        }
+        selected_modalities <- selected_modalities[selected_modalities %in% modality_choices]
+
+        div(
+          class = "border rounded p-3 mb-2",
+          selectInput(
+            ns(col_input_id), "Filter on clin column :",
+            choices = clinic_cols,
+            selected = selected_col,
+            multiple = FALSE, selectize = FALSE, size = 7
+          ),
+          selectInput(
+            ns(mod_input_id), "Kept modality :",
+            choices = modality_choices,
+            selected = selected_modalities,
+            multiple = TRUE, selectize = FALSE, size = 7
+          ),
+          div(
+            class = "d-flex justify-content-end",
+            actionButton(
+              ns(remove_input_id),
+              label = NULL,
+              icon = icon("trash"),
+              class = "btn btn-sm btn-outline-danger"
+            )
+          )
+        )
+      }))
     })
 
     # update gene list when bulk changes
@@ -114,7 +208,43 @@ mod_anchored_gsea_server <- function(id, roots = c(home = "~")) {
     # update clinic column lists
     observeEvent(input$clinic_file, {
       req(clinic_df())
-      updateSelectInput(session, "clinic_filt", choices = names(clinic_df()), selected = "")
+      clinic_filter_state$ids <- integer()
+    })
+
+    observeEvent(input$add_clinic_filter, {
+      filter_id <- clinic_filter_state$next_id + 1
+      clinic_filter_state$next_id <- filter_id
+      clinic_filter_state$ids <- c(clinic_filter_state$ids, filter_id)
+
+      local({
+        current_filter_id <- filter_id
+        current_col_id <- paste0("clinic_filter_col_", current_filter_id)
+        current_mod_id <- paste0("clinic_filter_modalities_", current_filter_id)
+        current_remove_id <- paste0("remove_clinic_filter_", current_filter_id)
+
+        observeEvent(input[[current_col_id]], {
+          selected_col <- input[[current_col_id]]
+          modality_choices <- if (!is.null(selected_col) && nzchar(selected_col)) {
+            clinic_modality_choices(selected_col)
+          } else {
+            character(0)
+          }
+
+          selected_modalities <- input[[current_mod_id]]
+          selected_modalities <- selected_modalities[selected_modalities %in% modality_choices]
+
+          updateSelectInput(
+            session,
+            current_mod_id,
+            choices = modality_choices,
+            selected = selected_modalities
+          )
+        }, ignoreInit = TRUE)
+
+        observeEvent(input[[current_remove_id]], {
+          clinic_filter_state$ids <- setdiff(clinic_filter_state$ids, current_filter_id)
+        }, ignoreInit = TRUE)
+      })
     })
 
     # shinyFiles directory chooser (IMPORTANT: pass session=)
@@ -129,16 +259,6 @@ mod_anchored_gsea_server <- function(id, roots = c(home = "~")) {
     output_dir_path <- reactive({
       req(input$output_dir)
       shinyFiles::parseDirPath(roots, input$output_dir)
-    })
-
-
-    # clinic filter -> modalities
-    observeEvent(input$clinic_filt, {
-      req(clinic_df(), input$clinic_filt)
-      v <- clinic_df()[[input$clinic_filt]]
-      mods <- if (is.factor(v)) levels(v) else sort(unique(as.character(v)))
-      mods <- mods[!is.na(mods) & mods != ""]
-      updateSelectInput(session, "kept_modality", choices = mods, selected = NULL)
     })
 
     # ---- RUN anchored_GSEA (this must NOT be inside observeEvent) ----
@@ -157,10 +277,9 @@ mod_anchored_gsea_server <- function(id, roots = c(home = "~")) {
           adjust_on_ESTIMATE = adjust_on_cell_fraction_str(),
           anchor_gene        = input$anchor_gene,
           pathways_to_use    = input$GSEA_geneset,
-          filter_on_clin_col = input$clinic_filt,
-          kept_modality      = input$kept_modality,
+          clinic_filters     = clinic_filters(),
           filter_by_gene     = input$gene_filt,
-          quantile           = input$quantile,
+          quantile_thr       = input$quantile,
           keep_low_or_high   = input$low_or_high
         )
         incProgress(1)
@@ -175,7 +294,7 @@ mod_anchored_gsea_server <- function(id, roots = c(home = "~")) {
     })
 
     output$top_GSEA <- DT::renderDT({
-      df <- anchored_gsea_res
+      df <- anchored_gsea_res()
       req(df)
       df
     })

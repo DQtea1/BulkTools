@@ -11,7 +11,7 @@ adjust_on_ESTIMATE =  "immune_score+stromal_score"  # = stromal_score, immune_sc
 
 anchored_GSEA_pipe <- function(rnafilt_counts, clinic_annot, output_dir, anchor_gene, pathways_to_use,
                         filter_by_gene, keep_low_or_high, quantile_thr = NULL, adjust_on_ESTIMATE = NULL, 
-                        filter_on_clin_col = NULL, kept_modality = NULL)
+                        clinic_filters = NULL)
     {
     adjustment_suffix = gsub("_score", "", adjust_on_ESTIMATE)
     selected_pathways = get(pathways_to_use)
@@ -21,8 +21,7 @@ anchored_GSEA_pipe <- function(rnafilt_counts, clinic_annot, output_dir, anchor_
     # clinic_annot = clinic_annot[clinic_annot[, subset_column] %in% subset_modality,]
     # rnafilt_counts = rnafilt_counts[, colnames(rnafilt_counts) %in% rownames(clinic_annot)]
     filtered_data = filtering_on_clinic_and_genes(clinic_annot, rnafilt_counts, 
-                                  filter_on_clin_col = filter_on_clin_col, 
-                                  kept_modality = kept_modality, 
+                                  clinic_filters = clinic_filters,
                                   filter_by_gene = filter_by_gene, 
                                   keep_low_or_high = keep_low_or_high, 
                                   quantile_thr = quantile_thr, 
@@ -108,7 +107,6 @@ anchored_GSEA_pipe <- function(rnafilt_counts, clinic_annot, output_dir, anchor_
     #        sep = ",", dec = ".")
 
 }
-
 
 
 

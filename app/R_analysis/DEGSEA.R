@@ -9,7 +9,7 @@ library(fgsea)
 
 DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, contrast, control, test, output_dir, pathways_to_use,
                         filter_by_gene = NULL, keep_low_or_high = NULL, quantile_thr = NULL, covariates = NULL, 
-                        filter_on_clin_col = NULL, kept_modality = NULL)
+                        clinic_filters = NULL)
     {
     if(!is.null(covariates))
     {
@@ -25,10 +25,9 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, contrast, control, test, o
 
     parsed_design = gsub("~", "", gsub(" ", "", DESeq_design))[2]  # Will be used for the path of the save directory
 
-    # # Filtering on subgroup (if mentionned in filter_on_clin_col and kept modality)
+    # Filter on clinic and gene selections before downstream analyses.
     filtered_data = filtering_on_clinic_and_genes(clinic_annot, rnafilt_counts, 
-                                                  filter_on_clin_col = filter_on_clin_col, 
-                                                  kept_modality = kept_modality, 
+                                                  clinic_filters = clinic_filters,
                                                   filter_by_gene = filter_by_gene, 
                                                   keep_low_or_high = keep_low_or_high, 
                                                   quantile_thr = quantile_thr,
@@ -39,6 +38,7 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, contrast, control, test, o
     rnafilt_counts = filtered_data$rnafilt_counts
     clinic_annot = filtered_data$clinic_annot
     output_DESeq = filtered_data$output_path
+    filter_suffix = basename(dirname(output_DESeq))
 
     #### Remove NA and align clinic annot and RNAseq
     rownames(clinic_annot) = clinic_annot$ID_Patient
@@ -77,6 +77,8 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, contrast, control, test, o
                       modalities_test = test
                       )
                       
+    # doDGEv2 collapses the selected modalities into the binary levels
+    # "control" and "test" inside the DESeq2 object.
     DESeq_res = results(DESeq_dds, contrast = c(contrast, "test", "control"))
 
 
@@ -135,13 +137,7 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, contrast, control, test, o
 
     #### GSEA ####
 
-    if(!is.null(filter_by_gene) && !is.null(filter_on_clin_col)){
-    output_GSEA = paste0(output_dir, "/GSEA/", filter_on_clin_col, "-", kept_modality, "_", filter_by_gene, "-", keep_low_or_high, "-", quantile_thr, "/", parsed_design)
-    }else if (!is.null(filter_by_gene)) {
-    output_GSEA = paste0(output_dir, "/GSEA/", filter_on_clin_col, "-", kept_modality, "/", parsed_design)
-    }else if (!is.null(filter_on_clin_col)) {
-    output_GSEA = paste0(output_dir, "/GSEA/", filter_by_gene, "-", keep_low_or_high, "-", quantile_thr, "/", parsed_design)
-    }else{output_GSEA = paste0(output_dir, "/GSEA/", parsed_design)}
+    output_GSEA = file.path(output_dir, "GSEA", filter_suffix, parsed_design)
 
 
     gene_stat = DESeq_res$stat
@@ -179,10 +175,7 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, contrast, control, test, o
 
     #### GESECA ####
 
-    if(!is.null(filter_on_clin_col) && !is.null(kept_modality)){
-    clinic_annot = clinic_annot[clinic_annot[ ,filter_on_clin_col] == kept_modality, ]
-    output_GESECA = paste0(output_dir, "/GESECA/", filter_on_clin_col, "_", kept_modality, "_", pathways_name, ".csv")
-    } else {output_GESECA = paste0(output_dir, "/GESECA/", pathways_name, ".csv")}
+    output_GESECA = file.path(output_dir, "GESECA", filter_suffix, parsed_design, paste0(pathways_name, ".csv"))
 
     
     # On les met en no_NA pour la colonne de réponse
@@ -201,16 +194,13 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, contrast, control, test, o
 
     top_geseca_names = ordered_ss$pathway[1:50]
 
-    write_csv_mkdir(ordered_ss, paste0(output_dir, "/GESECA/", pathways_name, ".csv"), row.names=FALSE)
+    write_csv_mkdir(ordered_ss, output_GESECA, row.names=FALSE)
 
 
 
     #### ssGSEA ####
 
-    if(!is.null(filter_on_clin_col) && !is.null(kept_modality)){
-    clinic_annot = clinic_annot[clinic_annot[ ,filter_on_clin_col] == kept_modality, ]
-    output_ssGSEA = paste0(output_dir, "/ssGSEA/", filter_on_clin_col, "_", kept_modality, "_", "es_ssgsea_", pathways_name, ".csv")
-    } else {output_ssGSEA = paste0(output_dir, "/ssGSEA/", "es_ssgsea_", pathways_name, ".csv")}
+    output_ssGSEA = file.path(output_dir, "ssGSEA", filter_suffix, parsed_design, paste0("es_ssgsea_", pathways_name, ".csv"))
 
     sp = ssgseaParam(
     as.matrix(rnafilt_noNA),
@@ -225,11 +215,10 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, contrast, control, test, o
 
     return(list(
                 plots = list(volcano = p),
-                tables = list(top_DE_genes = top_genes, 
+                tables = list(top_DE = top_genes, 
                               top_GSEA = sorted_gsea_results[, c("pathway", "NES", "padj", "leadingEdge")], 
                               top_GESECA = ordered_ss, 
                               top_ssGSEA = nes_ssgsea)
                 )
             )
     }
-

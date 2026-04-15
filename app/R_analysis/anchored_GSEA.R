@@ -14,7 +14,11 @@ anchored_GSEA_pipe <- function(rnafilt_counts, clinic_annot, output_dir, anchor_
                         clinic_filters = NULL)
     {
     adjustment_suffix = gsub("_score", "", adjust_on_ESTIMATE)
-    selected_pathways = get(pathways_to_use)
+    selected_pathways = normalize_gene_set_collection(get(pathways_to_use), fallback_prefix = pathways_to_use)
+
+    if (length(selected_pathways) == 0) {
+        stop(sprintf("The selected pathway collection '%s' does not contain any usable gene set.", pathways_to_use))
+    }
     # Load datasets
 
     # Filter clinic annotations
@@ -107,6 +111,5 @@ anchored_GSEA_pipe <- function(rnafilt_counts, clinic_annot, output_dir, anchor_
     #        sep = ",", dec = ".")
 
 }
-
 
 

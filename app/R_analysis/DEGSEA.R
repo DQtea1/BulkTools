@@ -41,7 +41,11 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filt
 
 
     pathways_name = pathways_to_use
-    selected_pathways = get(pathways_to_use) # "all_pathways" "REACTOME_pathways", "GOBP_pathways", "KEGG_pathways", "nerve_sigs", "nerve_signatures", "final_nerve_signatures"
+    selected_pathways = normalize_gene_set_collection(get(pathways_to_use), fallback_prefix = pathways_to_use)
+
+    if (length(selected_pathways) == 0) {
+        stop(sprintf("The selected pathway collection '%s' does not contain any usable gene set.", pathways_to_use))
+    }
 
     parsed_design = paste0(gsub("~", "", gsub(" ", "", DESeq_design))[2], "__", comparison_suffix)  # Will be used for the path of the save directory
 

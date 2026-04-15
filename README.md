@@ -40,7 +40,7 @@ nb : Default root for selecting an output path will be "C:\Users" so you might w
 nb : Default root for selecting an output path will be "C:\Users" so you might want to edit it to a customed path.
 
 
-## FOR LINUX (might not work yet):
+## FOR LINUX (doesnt work yet):
 > docker run --rm -p 5288:5288 \
     -e SHINY_PORT=5288 \
     -e SHINY_ROOT_PATH=/browse \

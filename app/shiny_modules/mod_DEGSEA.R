@@ -116,6 +116,7 @@ mod_degsea_ui <- function(id) {
     ),
 
     navset_card_tab(
+      nav_panel("Tutorial", degsea_tutorial_card()),
       nav_panel("Logs", card(verbatimTextOutput(ns("logs")))),
       nav_panel("Volcano", card(plotOutput(ns("volcano"), height = 450))),
       nav_panel("Differential Expression", card(DT::DTOutput(ns("top_DE")))),

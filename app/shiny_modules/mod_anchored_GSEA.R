@@ -36,7 +36,8 @@ mod_anchored_gsea_ui <- function(id) {
           "Filtering on gene",
           selectizeInput(
             ns("gene_filt"), "Filter on gene :",
-            choices = character(0),
+            choices = stats::setNames("", ""),
+            selected = "",
             multiple = FALSE,
             options = list(placeholder = "Type a gene symbol…")
           ),
@@ -96,6 +97,10 @@ mod_anchored_gsea_server <- function(id, roots = c(home = "~")) {
     bulk_df <- reactive({
       read_delim_auto(input$bulk_file)
     })
+
+    gene_filter_choices <- function(genes = character(0)) {
+      c(stats::setNames("", ""), stats::setNames(genes, genes))
+    }
 
     clinic_filter_state <- reactiveValues(ids = integer(), next_id = 0)
 
@@ -192,7 +197,7 @@ mod_anchored_gsea_server <- function(id, roots = c(home = "~")) {
     observeEvent(input$bulk_file, {
       req(bulk_df())
       genes <- rownames(bulk_df())
-      updateSelectizeInput(session, "gene_filt", choices = genes, server = TRUE)
+      updateSelectizeInput(session, "gene_filt", choices = gene_filter_choices(genes), selected = "", server = TRUE)
       updateSelectizeInput(session, "anchor_gene", choices = genes, server = TRUE)
     })
 

@@ -231,6 +231,32 @@ normalize_group_gene_filter <- function(group_gene_filter) {
 }
 
 
+normalize_group_gene_filters <- function(group_gene_filters) {
+  if (is.null(group_gene_filters) || length(group_gene_filters) == 0) {
+    return(NULL)
+  }
+
+  is_single_filter <- is.list(group_gene_filters) &&
+    !is.null(names(group_gene_filters)) &&
+    any(names(group_gene_filters) %in% c("gene", "quantile_thr", "keep_low_or_high"))
+
+  raw_filters <- if (is_single_filter) {
+    list(group_gene_filters)
+  } else {
+    group_gene_filters
+  }
+
+  normalized_filters <- lapply(raw_filters, normalize_group_gene_filter)
+  normalized_filters <- Filter(Negate(is.null), normalized_filters)
+
+  if (length(normalized_filters) == 0) {
+    return(NULL)
+  }
+
+  normalized_filters
+}
+
+
 gene_filter_path_suffix <- function(group_gene_filter) {
   normalized_gene_filter <- normalize_group_gene_filter(group_gene_filter)
 
@@ -245,6 +271,24 @@ gene_filter_path_suffix <- function(group_gene_filter) {
     paste0("q", sanitize_filter_token(normalized_gene_filter$quantile_thr)),
     sep = "-"
   ), max_chars = 72, prefix_chars = 56)
+}
+
+
+group_gene_filters_path_suffix <- function(group_gene_filters) {
+  normalized_filters <- normalize_group_gene_filters(group_gene_filters)
+
+  if (is.null(normalized_filters)) {
+    return(NULL)
+  }
+
+  suffix_parts <- vapply(normalized_filters, gene_filter_path_suffix, character(1))
+  suffix_parts <- suffix_parts[!is.na(suffix_parts) & nzchar(suffix_parts)]
+
+  if (length(suffix_parts) == 0) {
+    return(NULL)
+  }
+
+  compact_path_component(paste(suffix_parts, collapse = "__"), max_chars = 120, prefix_chars = 88)
 }
 
 
@@ -311,8 +355,11 @@ matching_group_sample_ids <- function(clinic_annot,
     clinic_ids <- intersect(clinic_ids, matching_clinic_sample_ids(clinic_annot, clinic_filters, sample_id_col))
   }
 
-  if (!is.null(normalize_group_gene_filter(group_gene_filter))) {
-    clinic_ids <- intersect(clinic_ids, matching_gene_sample_ids(rnafilt_counts, group_gene_filter))
+  normalized_gene_filters <- normalize_group_gene_filters(group_gene_filter)
+  if (!is.null(normalized_gene_filters)) {
+    for (gene_filter in normalized_gene_filters) {
+      clinic_ids <- intersect(clinic_ids, matching_gene_sample_ids(rnafilt_counts, gene_filter))
+    }
   }
 
   clinic_ids
@@ -327,7 +374,7 @@ group_definition_path_suffix <- function(clinic_filters = NULL, group_gene_filte
     suffix_parts <- c(suffix_parts, clinic_suffix)
   }
 
-  gene_suffix <- gene_filter_path_suffix(group_gene_filter)
+  gene_suffix <- group_gene_filters_path_suffix(group_gene_filter)
   if (!is.null(gene_suffix)) {
     suffix_parts <- c(suffix_parts, gene_suffix)
   }

@@ -14,8 +14,8 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filt
     condition_col = "DEGSEA_group"
     control_filters = normalize_clinic_filters(control_filters)
     test_filters = normalize_clinic_filters(test_filters)
-    control_gene_filter = normalize_group_gene_filter(control_gene_filter)
-    test_gene_filter = normalize_group_gene_filter(test_gene_filter)
+    control_gene_filter = normalize_group_gene_filters(control_gene_filter)
+    test_gene_filter = normalize_group_gene_filters(test_gene_filter)
 
     if (is.null(control_filters) && is.null(control_gene_filter)) {
         stop("At least one control-group clinic or gene filter is required.")

@@ -57,7 +57,8 @@ mod_signature_proj_ui <- function(id) {
             "Filtering on gene",
             selectizeInput(
               ns("gene_filt_proj"), "Filter on gene :",
-              choices = character(0),
+              choices = stats::setNames("", ""),
+              selected = "",
               multiple = FALSE,
               options = list(placeholder = "Type a gene symbol…")
             ),
@@ -163,6 +164,10 @@ mod_signature_proj_server <- function(id, roots = c(home = "~")) {
     bulk_df <- reactive({
       read_delim_auto(input$bulk_file)
     })
+
+    gene_filter_choices <- function(genes = character(0)) {
+      c(stats::setNames("", ""), stats::setNames(genes, genes))
+    }
 
     clinic_filter_state <- reactiveValues(ids = integer(), next_id = 0)
 
@@ -317,7 +322,7 @@ mod_signature_proj_server <- function(id, roots = c(home = "~")) {
     observeEvent(input$bulk_file, {
       req(bulk_df())
       genes <- rownames(bulk_df())
-      updateSelectizeInput(session, "gene_filt_proj", choices = genes, server = TRUE)
+      updateSelectizeInput(session, "gene_filt_proj", choices = gene_filter_choices(genes), selected = "", server = TRUE)
     })
 
     observeEvent(input$contrast, {

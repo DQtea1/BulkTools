@@ -20,10 +20,9 @@ mod_degsea_ui <- function(id) {
           "Filtering on clinic",
           div(
             class = "d-flex justify-content-between align-items-center mb-2",
-            tags$span("Add one or more clinical filters"),
             actionButton(
               ns("add_clinic_filter"),
-              label = NULL,
+              label = "Add clinical filter",
               icon = icon("plus"),
               class = "btn btn-sm btn-outline-primary"
             )
@@ -35,7 +34,8 @@ mod_degsea_ui <- function(id) {
           "Filtering on gene",
           selectizeInput(
             ns("gene_filt"), "Filter on gene :",
-            choices = character(0),
+            choices = stats::setNames("", ""),
+            selected = "",
             multiple = FALSE,
             options = list(placeholder = "Type a gene symbol…")
           ),
@@ -61,77 +61,47 @@ mod_degsea_ui <- function(id) {
             class = "border rounded p-3 mb-3",
             div(
               class = "d-flex justify-content-between align-items-center mb-2",
-              tags$span("Control group definition *"),
               actionButton(
                 ns("add_control_filter"),
-                label = NULL,
+                label = "Select CONTROL group on clinical columns",
                 icon = icon("plus"),
                 class = "btn btn-sm btn-outline-primary"
               )
             ),
-            tags$p(
-              class = "text-muted small mb-2",
-              "Samples kept in control must match all rows below."
-            ),
             uiOutput(ns("control_filters_ui")),
-            tags$hr(class = "my-3"),
-            tags$p(
-              class = "text-muted small mb-2",
-              "Optional expression rule: leave the gene empty to disable it."
+            div(
+              class = "d-flex justify-content-between align-items-center mb-2",
+              actionButton(
+                ns("add_control_gene_filter"),
+                label = "Select CONTROL group on gene expression",
+                icon = icon("plus"),
+                class = "btn btn-sm btn-outline-primary"
+              )
             ),
-            selectizeInput(
-              ns("control_group_gene"), "Expression gene :",
-              choices = character(0),
-              multiple = FALSE,
-              options = list(placeholder = "Type a gene symbol…")
-            ),
-            numericInput(
-              ns("control_group_quantile"), "Expression quantile :",
-              value = 0.6, min = 0, max = 1, step = 0.05
-            ),
-            selectInput(
-              ns("control_group_low_or_high"), "Keep low or high expression :",
-              choices = c("low (< quantile)" = "low", "high (> quantile)" = "high"),
-              multiple = FALSE, selectize = FALSE, size = 2
-            )
+            uiOutput(ns("control_gene_filters_ui"))
           ),
           div(
             class = "border rounded p-3 mb-3",
             div(
               class = "d-flex justify-content-between align-items-center mb-2",
-              tags$span("Test group definition *"),
               actionButton(
                 ns("add_test_filter"),
-                label = NULL,
+                label = "Select TEST group on clinical columns",
                 icon = icon("plus"),
                 class = "btn btn-sm btn-outline-primary"
               )
             ),
-            tags$p(
-              class = "text-muted small mb-2",
-              "Samples kept in test must match all rows below."
-            ),
             uiOutput(ns("test_filters_ui")),
-            tags$hr(class = "my-3"),
-            tags$p(
-              class = "text-muted small mb-2",
-              "Optional expression rule: leave the gene empty to disable it."
+            div(
+              class = "d-flex justify-content-between align-items-center mb-2",
+              actionButton(
+                ns("add_test_gene_filter"),
+                label = "Select TEST group on gene expression",
+                icon = icon("plus"),
+                class = "btn btn-sm btn-outline-primary"
+              )
             ),
-            selectizeInput(
-              ns("test_group_gene"), "Expression gene :",
-              choices = character(0),
-              multiple = FALSE,
-              options = list(placeholder = "Type a gene symbol…")
-            ),
-            numericInput(
-              ns("test_group_quantile"), "Expression quantile :",
-              value = 0.6, min = 0, max = 1, step = 0.05
-            ),
-            selectInput(
-              ns("test_group_low_or_high"), "Keep low or high expression :",
-              choices = c("low (< quantile)" = "low", "high (> quantile)" = "high"),
-              multiple = FALSE, selectize = FALSE, size = 2
-            )
+            uiOutput(ns("test_gene_filters_ui"))
           ),
           selectInput(
             ns("GSEA_geneset"), "GSEA geneset : *",
@@ -168,27 +138,15 @@ mod_degsea_server <- function(id, roots = c(home = "~")) {
       read_delim_auto(input$bulk_file)
     })
 
+    gene_filter_choices <- function(genes = character(0)) {
+      c(stats::setNames("", ""), stats::setNames(genes, genes))
+    }
+
     clinic_modality_choices <- function(clinic_col) {
       req(clinic_df(), clinic_col)
       values <- clinic_df()[[clinic_col]]
       choices <- if (is.factor(values)) levels(values) else sort(unique(as.character(values)))
       choices[!is.na(choices) & nzchar(choices)]
-    }
-
-    collect_group_gene_filter <- function(gene_input_id, quantile_input_id, direction_input_id) {
-      reactive({
-        gene_name <- trimws(if (is.null(input[[gene_input_id]])) "" else as.character(input[[gene_input_id]]))
-
-        if (!nzchar(gene_name)) {
-          return(NULL)
-        }
-
-        list(
-          gene = gene_name,
-          quantile_thr = input[[quantile_input_id]],
-          keep_low_or_high = input[[direction_input_id]]
-        )
-      })
     }
 
     create_filter_state <- function() {
@@ -235,7 +193,34 @@ mod_degsea_server <- function(id, roots = c(home = "~")) {
       })
     }
 
-    render_filter_set <- function(filter_state, filter_prefix, empty_message) {
+    collect_group_gene_filters <- function(filter_state, filter_prefix) {
+      reactive({
+        if (length(filter_state$ids) == 0) {
+          return(NULL)
+        }
+
+        selected_filters <- list()
+
+        for (filter_id in filter_state$ids) {
+          gene_name <- input[[paste0(filter_prefix, "_gene_filter_gene_", filter_id)]]
+          gene_name <- trimws(if (is.null(gene_name)) "" else as.character(gene_name))
+
+          if (!nzchar(gene_name)) {
+            next
+          }
+
+          selected_filters[[length(selected_filters) + 1]] <- list(
+            gene = gene_name,
+            quantile_thr = input[[paste0(filter_prefix, "_gene_filter_quantile_", filter_id)]],
+            keep_low_or_high = input[[paste0(filter_prefix, "_gene_filter_direction_", filter_id)]]
+          )
+        }
+
+        normalize_group_gene_filters(selected_filters)
+      })
+    }
+
+    render_filter_set <- function(filter_state, filter_prefix, empty_message=NULL) {
       output[[paste0(filter_prefix, "_filters_ui")]] <- renderUI({
         clinic_cols <- if (isTruthy(input$clinic_file)) names(clinic_df()) else character(0)
 
@@ -270,6 +255,72 @@ mod_degsea_server <- function(id, roots = c(home = "~")) {
               choices = modality_choices,
               selected = selected_modalities,
               multiple = TRUE, selectize = FALSE, size = 7
+            ),
+            div(
+              class = "d-flex justify-content-end",
+              actionButton(
+                ns(remove_input_id),
+                label = NULL,
+                icon = icon("trash"),
+                class = "btn btn-sm btn-outline-danger"
+              )
+            )
+          )
+        }))
+      })
+    }
+
+    render_gene_filter_set <- function(filter_state, filter_prefix, empty_message=NULL) {
+      output[[paste0(filter_prefix, "_gene_filters_ui")]] <- renderUI({
+        gene_choices <- if (isTruthy(input$bulk_file)) {
+          gene_filter_choices(rownames(bulk_df()))
+        } else {
+          gene_filter_choices()
+        }
+
+        if (length(filter_state$ids) == 0) {
+          return(tags$p(class = "text-muted mb-0", empty_message))
+        }
+
+        tagList(lapply(filter_state$ids, function(filter_id) {
+          gene_input_id <- paste0(filter_prefix, "_gene_filter_gene_", filter_id)
+          quantile_input_id <- paste0(filter_prefix, "_gene_filter_quantile_", filter_id)
+          direction_input_id <- paste0(filter_prefix, "_gene_filter_direction_", filter_id)
+          remove_input_id <- paste0("remove_", filter_prefix, "_gene_filter_", filter_id)
+
+          selected_gene <- isolate(input[[gene_input_id]])
+          if (is.null(selected_gene) || !nzchar(selected_gene) || !selected_gene %in% names(gene_choices)) {
+            selected_gene <- ""
+          }
+
+          selected_quantile <- isolate(input[[quantile_input_id]])
+          if (is.null(selected_quantile) || length(selected_quantile) == 0 || is.na(selected_quantile)) {
+            selected_quantile <- 0.6
+          }
+
+          selected_direction <- isolate(input[[direction_input_id]])
+          if (is.null(selected_direction) || !selected_direction %in% c("low", "high")) {
+            selected_direction <- "low"
+          }
+
+          div(
+            class = "border rounded p-3 mb-2",
+            selectizeInput(
+              ns(gene_input_id), "Expression gene :",
+              choices = gene_choices,
+              selected = selected_gene,
+              multiple = FALSE,
+              options = list(placeholder = "Type a gene symbol…")
+            ),
+            numericInput(
+              ns(quantile_input_id), "Expression quantile :",
+              value = selected_quantile, min = 0, max = 1, step = 0.05
+            ),
+            selectInput(
+              ns(direction_input_id), "Keep low or high expression :",
+              choices = c("low (< quantile)" = "low", "high (> quantile)" = "high"),
+              selected = selected_direction,
+              multiple = FALSE, selectize = FALSE, size = 2
             ),
             div(
               class = "d-flex justify-content-end",
@@ -323,31 +374,55 @@ mod_degsea_server <- function(id, roots = c(home = "~")) {
       })
     }
 
+    register_gene_filter_set <- function(filter_state, filter_prefix) {
+      observeEvent(input[[paste0("add_", filter_prefix, "_gene_filter")]], {
+        filter_id <- filter_state$next_id + 1
+        filter_state$next_id <- filter_id
+        filter_state$ids <- c(filter_state$ids, filter_id)
+
+        local({
+          current_filter_id <- filter_id
+          current_remove_id <- paste0("remove_", filter_prefix, "_gene_filter_", current_filter_id)
+
+          observeEvent(input[[current_remove_id]], {
+            filter_state$ids <- setdiff(filter_state$ids, current_filter_id)
+          }, ignoreInit = TRUE)
+        })
+      })
+    }
+
     clinic_filter_state <- create_filter_state()
     control_filter_state <- create_filter_state()
     test_filter_state <- create_filter_state()
+    control_gene_filter_state <- create_filter_state()
+    test_gene_filter_state <- create_filter_state()
 
     clinic_filters <- collect_named_filters(clinic_filter_state, "clinic", "clinical")
     control_filters <- collect_named_filters(control_filter_state, "control", "control group")
     test_filters <- collect_named_filters(test_filter_state, "test", "test group")
-    control_gene_filter <- collect_group_gene_filter("control_group_gene", "control_group_quantile", "control_group_low_or_high")
-    test_gene_filter <- collect_group_gene_filter("test_group_gene", "test_group_quantile", "test_group_low_or_high")
+    control_gene_filter <- collect_group_gene_filters(control_gene_filter_state, "control")
+    test_gene_filter <- collect_group_gene_filters(test_gene_filter_state, "test")
 
-    render_filter_set(clinic_filter_state, "clinic", "No clinical filter added yet.")
-    render_filter_set(control_filter_state, "control", "No control-group filter added yet.")
-    render_filter_set(test_filter_state, "test", "No test-group filter added yet.")
+    render_filter_set(clinic_filter_state, "clinic")
+    render_filter_set(control_filter_state, "control")
+    render_filter_set(test_filter_state, "test")
+    render_gene_filter_set(control_gene_filter_state, "control")
+    render_gene_filter_set(test_gene_filter_state, "test")
 
     register_filter_set(clinic_filter_state, "clinic")
     register_filter_set(control_filter_state, "control")
     register_filter_set(test_filter_state, "test")
+    register_gene_filter_set(control_gene_filter_state, "control")
+    register_gene_filter_set(test_gene_filter_state, "test")
 
     # update gene list when bulk changes
     observeEvent(input$bulk_file, {
       req(bulk_df())
       genes <- rownames(bulk_df())
-      updateSelectizeInput(session, "gene_filt", choices = genes, server = TRUE)
-      updateSelectizeInput(session, "control_group_gene", choices = genes, server = TRUE)
-      updateSelectizeInput(session, "test_group_gene", choices = genes, server = TRUE)
+      gene_choices <- gene_filter_choices(genes)
+      updateSelectizeInput(session, "gene_filt", choices = gene_choices, selected = "", server = TRUE)
+      reset_filter_state(control_gene_filter_state)
+      reset_filter_state(test_gene_filter_state)
     })
 
     # update clinic column lists

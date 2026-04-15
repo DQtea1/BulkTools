@@ -56,12 +56,12 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filt
                                                   folder_name = "DESeq") 
     
     rnafilt_counts = filtered_data$rnafilt_counts
-    clinic_annot = filtered_data$clinic_annot
+    clinic_annot = ensure_clinic_sample_id_col(filtered_data$clinic_annot)
     output_DESeq = filtered_data$output_path
     filter_suffix = basename(dirname(output_DESeq))
 
     #### Remove NA and align clinic annot and RNAseq
-    rownames(clinic_annot) = clinic_annot$ID_Patient
+    clinic_sample_ids = clinic_annot$ID_Patient
     control_ids = matching_group_sample_ids(
         clinic_annot = clinic_annot,
         rnafilt_counts = rnafilt_counts,
@@ -96,12 +96,13 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filt
 
     selected_ids = union(control_ids, test_ids)
     clinicannot_noNA = clinic_annot[
-        clinic_annot$ID_Patient %in% selected_ids &
-        clinic_annot$ID_Patient %in% colnames(rnafilt_counts),
+        clinic_sample_ids %in% selected_ids &
+        clinic_sample_ids %in% colnames(rnafilt_counts),
         ,
         drop = FALSE
     ]
-    clinicannot_noNA[[condition_col]] = ifelse(clinicannot_noNA$ID_Patient %in% control_ids, "control", "test")
+    clinicannot_sample_ids = clinicannot_noNA$ID_Patient
+    clinicannot_noNA[[condition_col]] = ifelse(clinicannot_sample_ids %in% control_ids, "control", "test")
 
     if (!is.null(covariates)) {
         for (covar in covariates) {
@@ -239,8 +240,12 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filt
     
     # On les met en no_NA pour la colonne de réponse
     rnafilt_norm = normVST_bulk(round(rnafilt_counts))
-    clinicannot_noNA = clinic_annot[clinic_annot$ID_Patient %in% selected_ids
-                                        & clinic_annot$ID_Patient %in% colnames(rnafilt_norm), ]
+    clinicannot_noNA = clinic_annot[
+        clinic_sample_ids %in% selected_ids &
+        clinic_sample_ids %in% colnames(rnafilt_norm),
+        ,
+        drop = FALSE
+    ]
     rnafilt_norm_noNA = rnafilt_norm[, colnames(rnafilt_norm) %in% clinicannot_noNA$ID_Patient]
     rnafilt_norm_noNA = rnafilt_norm_noNA[, rownames(clinicannot_noNA)]  # On les met dans le même ordre
     rnafilt_norm_cent_noNA = scale(rnafilt_norm_noNA)

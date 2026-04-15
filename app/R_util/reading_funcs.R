@@ -29,6 +29,40 @@ write_csv_mkdir <- function(x, file, ...) {
 }
 
 
+extract_clinic_sample_ids <- function(clinic_annot, sample_id_col = "ID_Patient") {
+  if (sample_id_col %in% colnames(clinic_annot)) {
+    sample_ids <- clinic_annot[[sample_id_col]]
+  } else if (!is.null(rownames(clinic_annot))) {
+    sample_ids <- rownames(clinic_annot)
+  } else {
+    stop(sprintf(
+      "Sample IDs were not found in clinic_annot: column '%s' is missing and row names are empty.",
+      sample_id_col
+    ))
+  }
+
+  sample_ids <- trimws(as.character(sample_ids))
+
+  if (length(sample_ids) != nrow(clinic_annot)) {
+    stop("The extracted clinic sample IDs do not match the number of rows in clinic_annot.")
+  }
+
+  if (any(is.na(sample_ids) | !nzchar(sample_ids))) {
+    stop("clinic_annot contains missing or empty sample IDs.")
+  }
+
+  sample_ids
+}
+
+
+ensure_clinic_sample_id_col <- function(clinic_annot, sample_id_col = "ID_Patient") {
+  sample_ids <- extract_clinic_sample_ids(clinic_annot, sample_id_col = sample_id_col)
+  clinic_annot[[sample_id_col]] <- sample_ids
+  rownames(clinic_annot) <- sample_ids
+  clinic_annot
+}
+
+
 normalize_clinic_filters <- function(clinic_filters) {
   if (is.null(clinic_filters) || length(clinic_filters) == 0) {
     return(NULL)
@@ -150,10 +184,7 @@ matching_clinic_sample_ids <- function(clinic_annot, clinic_filters, sample_id_c
   if (is.null(normalized_filters)) {
     return(character(0))
   }
-
-  if (!sample_id_col %in% colnames(clinic_annot)) {
-    stop(sprintf("Sample ID column '%s' not found in clinic_annot.", sample_id_col))
-  }
+  sample_ids <- extract_clinic_sample_ids(clinic_annot, sample_id_col = sample_id_col)
 
   keep_samples <- rep(TRUE, nrow(clinic_annot))
 
@@ -165,9 +196,7 @@ matching_clinic_sample_ids <- function(clinic_annot, clinic_filters, sample_id_c
     keep_samples <- keep_samples & clinic_annot[, filter_name] %in% normalized_filters[[filter_name]]
   }
 
-  sample_ids <- as.character(clinic_annot[[sample_id_col]][keep_samples])
-  sample_ids <- trimws(sample_ids)
-  unique(sample_ids[!is.na(sample_ids) & nzchar(sample_ids)])
+  unique(sample_ids[keep_samples])
 }
 
 
@@ -206,13 +235,7 @@ matching_group_sample_ids <- function(clinic_annot,
                                       clinic_filters = NULL,
                                       group_gene_filter = NULL,
                                       sample_id_col = "ID_Patient") {
-  if (!sample_id_col %in% colnames(clinic_annot)) {
-    stop(sprintf("Sample ID column '%s' not found in clinic_annot.", sample_id_col))
-  }
-
-  clinic_ids <- as.character(clinic_annot[[sample_id_col]])
-  clinic_ids <- trimws(clinic_ids)
-  clinic_ids <- unique(clinic_ids[!is.na(clinic_ids) & nzchar(clinic_ids)])
+  clinic_ids <- unique(extract_clinic_sample_ids(clinic_annot, sample_id_col = sample_id_col))
 
   if (!is.null(normalize_clinic_filters(clinic_filters))) {
     clinic_ids <- intersect(clinic_ids, matching_clinic_sample_ids(clinic_annot, clinic_filters, sample_id_col))

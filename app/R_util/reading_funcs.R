@@ -112,6 +112,76 @@ sanitize_filter_token <- function(x) {
 }
 
 
+stable_path_hash <- function(x) {
+  raw_values <- utf8ToInt(enc2utf8(paste(x, collapse = "|")))
+
+  if (length(raw_values) == 0) {
+    return("000000000000")
+  }
+
+  mod_1 <- 2147483629
+  mod_2 <- 2147483587
+  hash_1 <- 0
+  hash_2 <- 7
+
+  for (idx in seq_along(raw_values)) {
+    value <- raw_values[[idx]]
+    hash_1 <- (hash_1 * 131 + value + idx) %% mod_1
+    hash_2 <- (hash_2 * 137 + value + 3 * idx) %% mod_2
+  }
+
+  paste0(
+    sprintf("%06x", as.integer(hash_1 %% 16777215)),
+    sprintf("%06x", as.integer(hash_2 %% 16777215))
+  )
+}
+
+
+compact_path_component <- function(x, max_chars = 140, prefix_chars = 96) {
+  if (is.null(x) || length(x) == 0) {
+    return("undefined")
+  }
+
+  x <- paste(x, collapse = "__")
+  x <- sanitize_filter_token(x)
+
+  if (nchar(x, type = "chars") <= max_chars) {
+    return(x)
+  }
+
+  prefix_chars <- min(prefix_chars, max_chars - 16)
+  paste0(
+    substr(x, 1, prefix_chars),
+    "__h",
+    stable_path_hash(x)
+  )
+}
+
+
+compact_filter_values <- function(values, preview_values = 3, max_chars = 80) {
+  if (length(values) == 0) {
+    return("empty")
+  }
+
+  values <- sanitize_filter_token(sort(unique(values)))
+  joined_values <- paste(values, collapse = "+")
+
+  if (length(values) <= preview_values && nchar(joined_values, type = "chars") <= max_chars) {
+    return(joined_values)
+  }
+
+  shown_values <- values[seq_len(min(preview_values, length(values)))]
+
+  paste0(
+    paste(shown_values, collapse = "+"),
+    "+more",
+    length(values) - length(shown_values),
+    "-h",
+    substr(stable_path_hash(joined_values), 1, 8)
+  )
+}
+
+
 clinic_filters_path_suffix <- function(clinic_filters) {
   normalized_filters <- normalize_clinic_filters(clinic_filters)
 
@@ -121,14 +191,14 @@ clinic_filters_path_suffix <- function(clinic_filters) {
 
   suffix_parts <- vapply(names(normalized_filters), function(filter_name) {
     values <- sort(unique(normalized_filters[[filter_name]]))
-    paste0(
+    compact_path_component(paste0(
       sanitize_filter_token(filter_name),
       "-",
-      paste(sanitize_filter_token(values), collapse = "+")
-    )
+      compact_filter_values(values)
+    ), max_chars = 96, prefix_chars = 72)
   }, character(1))
 
-  paste(suffix_parts, collapse = "__")
+  compact_path_component(paste(suffix_parts, collapse = "__"), max_chars = 120, prefix_chars = 88)
 }
 
 
@@ -168,13 +238,13 @@ gene_filter_path_suffix <- function(group_gene_filter) {
     return(NULL)
   }
 
-  paste(
+  compact_path_component(paste(
     "gene",
     sanitize_filter_token(normalized_gene_filter$gene),
     sanitize_filter_token(normalized_gene_filter$keep_low_or_high),
     paste0("q", sanitize_filter_token(normalized_gene_filter$quantile_thr)),
     sep = "-"
-  )
+  ), max_chars = 72, prefix_chars = 56)
 }
 
 
@@ -266,16 +336,16 @@ group_definition_path_suffix <- function(clinic_filters = NULL, group_gene_filte
     return("nofilt")
   }
 
-  paste(suffix_parts, collapse = "__")
+  compact_path_component(paste(suffix_parts, collapse = "__"), max_chars = 120, prefix_chars = 88)
 }
 
 
 comparison_filters_path_suffix <- function(control_filters, test_filters, control_gene_filter = NULL, test_gene_filter = NULL) {
-  paste0(
+  compact_path_component(paste0(
     "control__", group_definition_path_suffix(control_filters, control_gene_filter),
     "__VS__",
     "test__", group_definition_path_suffix(test_filters, test_gene_filter)
-  )
+  ), max_chars = 150, prefix_chars = 108)
 }
 
 
@@ -300,6 +370,7 @@ filtering_on_clinic_and_genes <- function(clinic_annot = NULL,
 
   normalized_clinic_filters <- normalize_clinic_filters(clinic_filters)
   clinic_suffix <- clinic_filters_path_suffix(normalized_clinic_filters)
+  parsed_design <- compact_path_component(parsed_design, max_chars = 170, prefix_chars = 120)
 
   # Filter using clinic annotations
   if (!is.null(normalized_clinic_filters)) {
@@ -358,17 +429,17 @@ filtering_on_clinic_and_genes <- function(clinic_annot = NULL,
   gene_suffix <- NULL
 
   if (filt_on_gene) {
-    gene_suffix <- paste(
+    gene_suffix <- compact_path_component(paste(
       sanitize_filter_token(filter_by_gene),
       sanitize_filter_token(keep_low_or_high),
       sanitize_filter_token(quantile_thr),
       sep = "-"
-    )
+    ), max_chars = 80, prefix_chars = 60)
   }
 
   suffix_parts <- clinic_suffix
   if (!is.null(gene_suffix)) {
-    suffix_parts <- paste(c(suffix_parts, gene_suffix), collapse = "__")
+    suffix_parts <- compact_path_component(paste(c(suffix_parts, gene_suffix), collapse = "__"), max_chars = 120, prefix_chars = 88)
   }
 
   if (filt_on_gene && filt_on_clin) {

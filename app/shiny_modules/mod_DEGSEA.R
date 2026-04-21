@@ -296,7 +296,7 @@ mod_degsea_server <- function(id, roots = c(home = "~")) {
 
           selected_quantile <- isolate(input[[quantile_input_id]])
           if (is.null(selected_quantile) || length(selected_quantile) == 0 || is.na(selected_quantile)) {
-            selected_quantile <- 0.6
+            selected_quantile <- 0.5
           }
 
           selected_direction <- isolate(input[[direction_input_id]])

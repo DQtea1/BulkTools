@@ -10,11 +10,6 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import roc_curve, auc, confusion_matrix
 
-# def linear_reg_cv():
-    
-
-# def log_reg_cv():
-
 
 
 def nested_cv_signature(

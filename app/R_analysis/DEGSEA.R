@@ -189,7 +189,8 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filt
     library(tidyverse)
     library(jsonlite)
     library(fgsea)
-    
+    incProgress(0.2)
+
     condition_col = "DEGSEA_group"
     sample_ids = colnames(rnafilt_counts)
 
@@ -262,6 +263,8 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filt
             "Adjust the filters in 'Filtering on clinic' or 'Filtering on gene'."
         )
     }
+    
+    incProgress(0.25)
 
     #### Remove NA and align clinic annot and RNAseq
     clinic_sample_ids = clinic_annot$ID_Patient
@@ -350,6 +353,7 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filt
         stop("At least one DESeq group became empty after applying covariate filtering.")
     }
 
+    incProgress(0.3)
 
     ## RUN DESeq ##
     DESeq_dds = doDGEv2(rnamat = round(rnafilt_noNA),
@@ -369,6 +373,8 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filt
 
     if (!dir.exists(output_DESeq)) dir.create(output_DESeq, recursive = TRUE)
     saveRDS(DESeq_dds, file = paste0(output_DESeq,"/DESeq_dds", ".rds"), compress = "xz")  # good compression
+
+    incProgress(0.7)
 
     ## VOLCANO PLOT ## 
     log2FC_threshold = 0
@@ -413,6 +419,7 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filt
     ggsave(paste0(output_DESeq, "/", "volcano_plot.jpg"), plot = p, width = 8, height = 8, dpi = 300)
 
 
+    incProgress(0.75)
 
     #### GSEA ####
 
@@ -450,7 +457,7 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filt
     })
     write_csv_mkdir(sorted_gsea_results[, c("pathway", "NES", "pval", "padj", "log2err", "ES", "size", "leadingEdge")], paste0(output_GSEA, "/es_", pathways_name, ".csv"), row.names=TRUE)
 
-
+    incProgress(0.95)
 
     #### GESECA ####
 

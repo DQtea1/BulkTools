@@ -486,7 +486,7 @@ mod_degsea_server <- function(id, roots = c(home = "~")) {
       )
 
       withProgress(message = "Running DEGSEA...", value = 0, {
-        incProgress(0.2)
+        incProgress(0.1)
         res <- DEGSEA_pipe(
           rnafilt_counts     = bulk_df(),
           clinic_annot       = clinic_df(),

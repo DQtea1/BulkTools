@@ -9,11 +9,14 @@ OUTRIDER_pipe <- function(rnafilt_counts,
                           confounders        = NULL,
                           volcano_samples    = NULL,
                           plot_genes         = NULL,
-                          iterations         = 3) {
+                          iterations         = 3,
+                          label_column     = "response") {
   library(OUTRIDER)
   library(TxDb.Hsapiens.UCSC.hg19.knownGene)
   library(org.Hs.eg.db)
   library(ggplot2)
+
+  incProgress(0.15)
 
   rnafilt_counts <- round(as.matrix(rnafilt_counts))
 
@@ -59,12 +62,14 @@ OUTRIDER_pipe <- function(rnafilt_counts,
   ods <- filterExpression(ods, txdb, mapping = map, filterGenes = FALSE, savefpkm = TRUE)
   ods_filt <- ods[mcols(ods)$passedFilter, ]
 
+  incProgress(0.20)
 
   ### Controlling for confounders ###
   ods_filt <- estimateSizeFactors(ods_filt)
   ods_filt <- estimateBestQ(ods_filt, useOHT = TRUE)
   ods_filt <- controlForConfounders(ods_filt, iterations = iterations)
 
+  incProgress(0.30)
 
   ### Sample exclusion ###
   sampleExclusionMask(ods_filt) <- FALSE
@@ -86,17 +91,18 @@ OUTRIDER_pipe <- function(rnafilt_counts,
   res <- results(ods_filt)
   res_df <- as.data.frame(res)
 
-  tables_dir <- file.path(output_dir, "tables")
+  tables_dir <- file.path(output_dir, "OUTRIDER", "tables")
   if (!dir.exists(tables_dir)) dir.create(tables_dir, recursive = TRUE)
   write.csv(res_df, file = file.path(tables_dir, "results_OUTRIDER_advanced.csv"), row.names = FALSE)
 
+  incProgress(0.45)
 
   ### Aberrant per sample ###
   aberrant_plot <- plotAberrantPerSample(ods_filt, padjCutoff = 0.3)
 
 
   ### Volcano plots ###
-  volcano_dir <- file.path(output_dir, "plots", "volcanoes")
+  volcano_dir <- file.path(output_dir, "OUTRIDER", "plots", "volcanoes")
   if (!dir.exists(volcano_dir)) dir.create(volcano_dir, recursive = TRUE)
 
   if (is.null(volcano_samples) || length(volcano_samples) == 0) {
@@ -109,10 +115,11 @@ OUTRIDER_pipe <- function(rnafilt_counts,
     ggsave(file.path(volcano_dir, paste0("volcano_", sample, ".png")), p_volcano)
   }
 
+  incProgress(0.6)
 
   ### Gene-level plots ###
-  rank_dir <- file.path(output_dir, "plots", "expression_rank")
-  exp_dir  <- file.path(output_dir, "plots", "expected_vs_observed")
+  rank_dir <- file.path(output_dir, "OUTRIDER", "plots", "expression_rank")
+  exp_dir  <- file.path(output_dir, "OUTRIDER", "plots", "expected_vs_observed")
   if (!dir.exists(rank_dir)) dir.create(rank_dir, recursive = TRUE)
   if (!dir.exists(exp_dir))  dir.create(exp_dir,  recursive = TRUE)
 
@@ -120,12 +127,18 @@ OUTRIDER_pipe <- function(rnafilt_counts,
     plot_genes <- unique(as.character(res_df$geneID))
   }
 
+  colData(ods_filt)$label_col <- factor(
+    clinic_annot[[label_column]],
+    levels = unique(clinic_annot[[label_column]])
+  )
+
   for (gene in plot_genes) {
     p_rank <- plotExpressionRank(
       ods_filt,
       geneID   = gene,
       basePlot = TRUE,
       log      = TRUE,
+      groups = as.character(colData(ods_filt)$label_col),
       norm     = TRUE
     )
     ggsave(file.path(rank_dir, paste0(gene, ".png")), p_rank)
@@ -133,11 +146,13 @@ OUTRIDER_pipe <- function(rnafilt_counts,
     p_exp <- plotExpectedVsObservedCounts(
       ods_filt,
       geneID   = gene,
-      basePlot = TRUE
+      basePlot = TRUE,
+      groups = as.character(colData(ods_filt)$label_col)
     )
     ggsave(file.path(exp_dir, paste0(gene, ".png")), p_exp)
   }
 
+  incProgress(0.90)
 
   return(list(
     plots  = list(aberrant_per_sample = aberrant_plot),

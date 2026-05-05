@@ -53,6 +53,23 @@ mod_outrider_ui <- function(id) {
           ),
           div(
             selectizeInput(
+              ns("label_col"), "Grouping column :",
+              choices = character(0),
+              multiple = FALSE,
+              options = list(placeholder = "Select a column for labelling samples in plots…")
+            ),
+            div(
+              class = "d-flex justify-content-end mb-2",
+              actionButton(
+                ns("clear_label_col"),
+                label = NULL,
+                icon = icon("trash"),
+                class = "btn btn-sm btn-outline-danger"
+              )
+            )
+          ),
+          div(
+            selectizeInput(
               ns("volcano_samples"), "Samples to volcano :",
               choices = character(0),
               multiple = TRUE,
@@ -97,7 +114,55 @@ mod_outrider_ui <- function(id) {
     navset_card_tab(
       nav_panel("Logs", card(verbatimTextOutput(ns("logs")))),
       nav_panel("Aberrant per sample", card(plotOutput(ns("aberrant_per_sample"), height = 450))),
-      nav_panel("Results", card(DT::DTOutput(ns("results_table"))))
+      nav_panel("Results", card(DT::DTOutput(ns("results_table")))),
+      nav_panel(
+        "Volcano",
+        card(
+          div(
+            class = "mb-2",
+            shinyFiles::shinyFilesButton(
+              ns("pick_volcano"),
+              label = "Open volcano plot",
+              title = "Select a volcano plot to display",
+              multiple = FALSE,
+              icon = icon("folder-open")
+            )
+          ),
+          tabsetPanel(id = ns("volcano_tabs"))
+        )
+      ),
+      nav_panel(
+        "Expression rank",
+        card(
+          div(
+            class = "mb-2",
+            shinyFiles::shinyFilesButton(
+              ns("pick_rank"),
+              label = "Open expression rank plot",
+              title = "Select an expression rank plot to display",
+              multiple = FALSE,
+              icon = icon("folder-open")
+            )
+          ),
+          tabsetPanel(id = ns("rank_tabs"))
+        )
+      ),
+      nav_panel(
+        "Expected vs observed",
+        card(
+          div(
+            class = "mb-2",
+            shinyFiles::shinyFilesButton(
+              ns("pick_exp"),
+              label = "Open expected vs observed plot",
+              title = "Select an expected vs observed plot to display",
+              multiple = FALSE,
+              icon = icon("folder-open")
+            )
+          ),
+          tabsetPanel(id = ns("exp_tabs"))
+        )
+      )
     )
   )
 }
@@ -142,10 +207,12 @@ mod_outrider_server <- function(id, roots = c(home = "~")) {
 
     observeEvent(input$clinic_file, {
       req(clinic_df())
+      updateSelectInput(session, "label_col", choices = names(clinic_df()), selected = NULL)
       updateSelectInput(session, "confounders", choices = names(clinic_df()), selected = NULL)
       updateSelectizeInput(session, "samples_to_exclude", choices = sample_id_choices(), server = TRUE)
       updateSelectizeInput(session, "volcano_samples",   choices = sample_id_choices(), server = TRUE)
     })
+
 
     shinyFiles::shinyDirChoose(
       input,
@@ -159,6 +226,83 @@ mod_outrider_server <- function(id, roots = c(home = "~")) {
       req(input$output_dir)
       shinyFiles::parseDirPath(roots, input$output_dir)
     })
+
+    # ---- Per-plot browsers (volcano / expression rank / expected vs observed) ----
+    plot_dir_roots <- function(plot_subdir) {
+      reactive({
+        out <- tryCatch(output_dir_path(), error = function(e) NULL)
+        if (is.null(out) || !nzchar(out)) {
+          return(roots)
+        }
+        plot_dir <- file.path(out, "plots", plot_subdir)
+        starting <- if (dir.exists(plot_dir)) plot_dir else out
+        c(plots = starting, output = out, home = roots[["home"]])
+      })
+    }
+
+    setup_plot_picker <- function(file_input_id, tabs_id, plot_subdir, output_prefix) {
+      roots_reactive <- plot_dir_roots(plot_subdir)
+      state <- reactiveValues(open_paths = character(0), counter = 0L)
+
+      shinyFiles::shinyFileChoose(
+        input,
+        id = file_input_id,
+        session = session,
+        roots = roots_reactive,
+        filetypes = c("png", "jpg", "jpeg", "svg")
+      )
+
+      observeEvent(input[[file_input_id]], {
+        sel <- input[[file_input_id]]
+        if (is.null(sel) || is.integer(sel)) return()
+
+        parsed <- shinyFiles::parseFilePaths(roots_reactive(), sel)
+        if (nrow(parsed) == 0) return()
+
+        file_path <- as.character(parsed$datapath[1])
+
+        if (file_path %in% state$open_paths) {
+          updateTabsetPanel(session, tabs_id, selected = file_path)
+          return()
+        }
+
+        state$counter <- state$counter + 1L
+        output_id <- paste0(output_prefix, "_img_", state$counter)
+
+        local({
+          img_path <- file_path
+          ext <- tolower(tools::file_ext(img_path))
+          content_type <- switch(
+            ext,
+            png = "image/png",
+            jpg = "image/jpeg",
+            jpeg = "image/jpeg",
+            svg = "image/svg+xml",
+            "image/png"
+          )
+          output[[output_id]] <- renderImage({
+            list(src = img_path, contentType = content_type, alt = basename(img_path))
+          }, deleteFile = FALSE)
+        })
+
+        insertTab(
+          inputId = tabs_id,
+          tabPanel(
+            title = basename(file_path),
+            value = file_path,
+            imageOutput(ns(output_id), height = "600px")
+          ),
+          session = session,
+          select = TRUE
+        )
+
+        state$open_paths <- c(state$open_paths, file_path)
+      })
+    }
+
+    setup_plot_picker("pick_volcano", "volcano_tabs", "volcanoes",            "volcano")
+    setup_plot_picker("pick_rank",    "rank_tabs",    "expression_rank",      "rank")
+    setup_plot_picker("pick_exp",     "exp_tabs",     "expected_vs_observed", "exp")
 
     # Clear buttons for selection fields
     observeEvent(input$clear_samples_to_exclude, {
@@ -187,7 +331,7 @@ mod_outrider_server <- function(id, roots = c(home = "~")) {
       )
 
       withProgress(message = "Running OUTRIDER...", value = 0, {
-        incProgress(0.2)
+        incProgress(0.1)
         res <- OUTRIDER_pipe(
           rnafilt_counts     = bulk_df(),
           clinic_annot       = clinic_df(),
@@ -196,6 +340,7 @@ mod_outrider_server <- function(id, roots = c(home = "~")) {
           confounders        = or_NULL(input$confounders),
           volcano_samples    = or_NULL(input$volcano_samples),
           plot_genes         = or_NULL(input$plot_genes),
+          label_column       = or_NULL(input$label_col),
           iterations         = input$iterations
         )
         incProgress(1)

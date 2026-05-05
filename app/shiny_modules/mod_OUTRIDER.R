@@ -234,7 +234,7 @@ mod_outrider_server <- function(id, roots = c(home = "~")) {
         if (is.null(out) || !nzchar(out)) {
           return(roots)
         }
-        plot_dir <- file.path(out, "plots", plot_subdir)
+        plot_dir <- file.path(out, "OUTRIDER", "plots", plot_subdir)
         starting <- if (dir.exists(plot_dir)) plot_dir else out
         c(plots = starting, output = out, home = roots[["home"]])
       })

@@ -9,6 +9,7 @@ library(dplyr)
 
 
 normVST_bulk <- function(rnaseq) {
+    library(DESeq2)
     dds <- DESeqDataSetFromMatrix(countData = rnaseq,
                             colData = data.frame(cond=rnorm(ncol(rnaseq))>0),
                             design = ~ cond)

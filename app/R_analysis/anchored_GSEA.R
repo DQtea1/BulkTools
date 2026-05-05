@@ -1,8 +1,3 @@
-library(data.table)
-library(fgsea)
-library(tidyestimate)
-library(limma)
-
 set.seed(69)
 
 
@@ -13,6 +8,11 @@ anchored_GSEA_pipe <- function(rnafilt_counts, clinic_annot, output_dir, anchor_
                         filter_by_gene, keep_low_or_high, quantile_thr = NULL, adjust_on_ESTIMATE = NULL, 
                         clinic_filters = NULL)
     {
+    library(data.table)
+    library(fgsea)
+    library(tidyestimate)
+    library(limma)
+
     adjustment_suffix = gsub("_score", "", adjust_on_ESTIMATE)
     selected_pathways = normalize_gene_set_collection(get(pathways_to_use), fallback_prefix = pathways_to_use)
 

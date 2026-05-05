@@ -273,12 +273,6 @@ mod_degsea_server <- function(id, roots = c(home = "~")) {
 
     render_gene_filter_set <- function(filter_state, filter_prefix, empty_message=NULL) {
       output[[paste0(filter_prefix, "_gene_filters_ui")]] <- renderUI({
-        gene_choices <- if (isTruthy(input$bulk_file)) {
-          gene_filter_choices(rownames(bulk_df()))
-        } else {
-          gene_filter_choices()
-        }
-
         if (length(filter_state$ids) == 0) {
           return(tags$p(class = "text-muted mb-0", empty_message))
         }
@@ -288,11 +282,6 @@ mod_degsea_server <- function(id, roots = c(home = "~")) {
           quantile_input_id <- paste0(filter_prefix, "_gene_filter_quantile_", filter_id)
           direction_input_id <- paste0(filter_prefix, "_gene_filter_direction_", filter_id)
           remove_input_id <- paste0("remove_", filter_prefix, "_gene_filter_", filter_id)
-
-          selected_gene <- isolate(input[[gene_input_id]])
-          if (is.null(selected_gene) || !nzchar(selected_gene) || !selected_gene %in% names(gene_choices)) {
-            selected_gene <- ""
-          }
 
           selected_quantile <- isolate(input[[quantile_input_id]])
           if (is.null(selected_quantile) || length(selected_quantile) == 0 || is.na(selected_quantile)) {
@@ -308,8 +297,8 @@ mod_degsea_server <- function(id, roots = c(home = "~")) {
             class = "border rounded p-3 mb-2",
             selectizeInput(
               ns(gene_input_id), "Expression gene :",
-              choices = gene_choices,
-              selected = selected_gene,
+              choices = stats::setNames("", ""),
+              selected = "",
               multiple = FALSE,
               options = list(placeholder = "Type a gene symbol…")
             ),
@@ -334,6 +323,44 @@ mod_degsea_server <- function(id, roots = c(home = "~")) {
             )
           )
         }))
+      })
+    }
+
+    sync_gene_filter_choices <- function(filter_state, filter_prefix) {
+      observe({
+        filter_ids <- filter_state$ids
+        gene_choices <- if (isTruthy(input$bulk_file)) {
+          gene_filter_choices(rownames(bulk_df()))
+        } else {
+          gene_filter_choices()
+        }
+
+        selected_genes <- stats::setNames(
+          lapply(filter_ids, function(filter_id) {
+            gene_input_id <- paste0(filter_prefix, "_gene_filter_gene_", filter_id)
+            selected_gene <- isolate(input[[gene_input_id]])
+
+            if (is.null(selected_gene) || !nzchar(selected_gene) || !selected_gene %in% names(gene_choices)) {
+              return("")
+            }
+
+            selected_gene
+          }),
+          as.character(filter_ids)
+        )
+
+        session$onFlushed(function() {
+          for (filter_id in filter_ids) {
+            gene_input_id <- paste0(filter_prefix, "_gene_filter_gene_", filter_id)
+            updateSelectizeInput(
+              session,
+              gene_input_id,
+              choices = gene_choices,
+              selected = selected_genes[[as.character(filter_id)]],
+              server = TRUE
+            )
+          }
+        }, once = TRUE)
       })
     }
 
@@ -409,6 +436,8 @@ mod_degsea_server <- function(id, roots = c(home = "~")) {
     render_filter_set(test_filter_state, "test")
     render_gene_filter_set(control_gene_filter_state, "control")
     render_gene_filter_set(test_gene_filter_state, "test")
+    sync_gene_filter_choices(control_gene_filter_state, "control")
+    sync_gene_filter_choices(test_gene_filter_state, "test")
 
     register_filter_set(clinic_filter_state, "clinic")
     register_filter_set(control_filter_state, "control")

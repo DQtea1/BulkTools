@@ -1,17 +1,208 @@
-library(DESeq2)
-library(dplyr)
-library(GSVA)
-library(ggplot2)
-library(tidyverse)
-library(jsonlite)
-library(fgsea)
+format_clinic_filter_description <- function(clinic_filters) {
+    normalized_filters <- normalize_clinic_filters(clinic_filters)
+
+    if (is.null(normalized_filters)) {
+        return("none")
+    }
+
+    paste(vapply(names(normalized_filters), function(filter_name) {
+        values <- paste(sort(unique(normalized_filters[[filter_name]])), collapse = ", ")
+        sprintf("%s in {%s}", filter_name, values)
+    }, character(1)), collapse = "; ")
+}
+
+
+format_group_gene_filter_description <- function(group_gene_filter) {
+    normalized_filters <- normalize_group_gene_filters(group_gene_filter)
+
+    if (is.null(normalized_filters)) {
+        return("none")
+    }
+
+    paste(vapply(normalized_filters, function(filter_def) {
+        sprintf(
+            "%s %s q=%s",
+            filter_def$gene,
+            filter_def$keep_low_or_high,
+            format(filter_def$quantile_thr, scientific = FALSE, trim = TRUE)
+        )
+    }, character(1)), collapse = " AND ")
+}
+
+
+group_gene_filter_note <- function(rnafilt_counts, group_gene_filter) {
+    if (is.data.frame(rnafilt_counts)) {
+        rnafilt_counts <- as.matrix(rnafilt_counts)
+    }
+
+    if (!group_gene_filter$gene %in% rownames(rnafilt_counts)) {
+        return(sprintf("gene '%s' is missing from the expression matrix", group_gene_filter$gene))
+    }
+
+    if (isTRUE(all.equal(group_gene_filter$quantile_thr, 0)) && identical(group_gene_filter$keep_low_or_high, "low")) {
+        return("q=0 with the strict 'low' rule is always empty")
+    }
+
+    if (isTRUE(all.equal(group_gene_filter$quantile_thr, 1)) && identical(group_gene_filter$keep_low_or_high, "high")) {
+        return("q=1 with the strict 'high' rule is always empty")
+    }
+
+    gene_expr <- as.numeric(rnafilt_counts[group_gene_filter$gene, , drop = TRUE])
+    gene_expr <- gene_expr[!is.na(gene_expr)]
+
+    if (length(gene_expr) > 0 && length(unique(gene_expr)) == 1) {
+        return("expression is constant across the remaining samples")
+    }
+
+    NULL
+}
+
+
+diagnose_group_matching <- function(clinic_annot,
+                                    rnafilt_counts,
+                                    clinic_filters = NULL,
+                                    group_gene_filter = NULL,
+                                    sample_id_col = "ID_Patient") {
+    normalized_clinic_filters <- normalize_clinic_filters(clinic_filters)
+    normalized_gene_filters <- normalize_group_gene_filters(group_gene_filter)
+    available_ids <- intersect(
+        unique(extract_clinic_sample_ids(clinic_annot, sample_id_col = sample_id_col)),
+        colnames(rnafilt_counts)
+    )
+
+    clinic_ids <- available_ids
+    if (!is.null(normalized_clinic_filters)) {
+        clinic_ids <- intersect(
+            available_ids,
+            matching_clinic_sample_ids(
+                clinic_annot = clinic_annot,
+                clinic_filters = normalized_clinic_filters,
+                sample_id_col = sample_id_col
+            )
+        )
+    }
+
+    gene_ids <- available_ids
+    gene_filter_counts <- list()
+    if (!is.null(normalized_gene_filters)) {
+        for (filter_idx in seq_along(normalized_gene_filters)) {
+            gene_filter <- normalized_gene_filters[[filter_idx]]
+            matched_gene_ids <- intersect(
+                available_ids,
+                matching_gene_sample_ids(rnafilt_counts, gene_filter)
+            )
+
+            gene_ids <- intersect(gene_ids, matched_gene_ids)
+            gene_filter_counts[[filter_idx]] <- list(
+                filter = gene_filter,
+                match_count = length(matched_gene_ids),
+                note = group_gene_filter_note(rnafilt_counts, gene_filter)
+            )
+        }
+    }
+
+    final_ids <- matching_group_sample_ids(
+        clinic_annot = clinic_annot,
+        rnafilt_counts = rnafilt_counts,
+        clinic_filters = normalized_clinic_filters,
+        group_gene_filter = normalized_gene_filters,
+        sample_id_col = sample_id_col
+    )
+    final_ids <- intersect(available_ids, final_ids)
+
+    list(
+        available_ids = available_ids,
+        clinic_filters = normalized_clinic_filters,
+        group_gene_filter = normalized_gene_filters,
+        clinic_ids = clinic_ids,
+        gene_ids = gene_ids,
+        final_ids = final_ids,
+        gene_filter_counts = gene_filter_counts
+    )
+}
+
+
+build_empty_group_error_message <- function(group_label, diagnostics) {
+    lines <- c(
+        sprintf("The %s-group filters do not match any sample after filtering.", group_label),
+        sprintf("Samples available after global filtering: %d.", length(diagnostics$available_ids))
+    )
+
+    if (!is.null(diagnostics$clinic_filters)) {
+        lines <- c(
+            lines,
+            sprintf(
+                "Clinical rules matched %d sample(s): %s",
+                length(diagnostics$clinic_ids),
+                format_clinic_filter_description(diagnostics$clinic_filters)
+            )
+        )
+    }
+
+    if (!is.null(diagnostics$group_gene_filter)) {
+        lines <- c(
+            lines,
+            sprintf(
+                "Gene-expression rules matched %d sample(s) in combination: %s",
+                length(diagnostics$gene_ids),
+                format_group_gene_filter_description(diagnostics$group_gene_filter)
+            )
+        )
+
+        per_gene_lines <- vapply(diagnostics$gene_filter_counts, function(entry) {
+            line <- sprintf(
+                "%s -> %d sample(s)",
+                format_group_gene_filter_description(entry$filter),
+                entry$match_count
+            )
+
+            if (!is.null(entry$note) && nzchar(entry$note)) {
+                line <- sprintf("%s (%s)", line, entry$note)
+            }
+
+            line
+        }, character(1))
+
+        lines <- c(lines, sprintf("Per-gene rule matches: %s", paste(per_gene_lines, collapse = "; ")))
+    }
+
+    if (!is.null(diagnostics$clinic_filters) &&
+        !is.null(diagnostics$group_gene_filter) &&
+        length(diagnostics$clinic_ids) > 0 &&
+        length(diagnostics$gene_ids) > 0 &&
+        length(diagnostics$final_ids) == 0) {
+        lines <- c(lines, "The clinical rules and gene-expression rules each match samples on their own, but their intersection is empty.")
+    }
+
+    paste(lines, collapse = "\n")
+}
 
 
 DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filters, output_dir, pathways_to_use,
                         filter_by_gene = NULL, keep_low_or_high = NULL, quantile_thr = NULL, covariates = NULL, 
                         clinic_filters = NULL, control_gene_filter = NULL, test_gene_filter = NULL)
     {
+    library(DESeq2)
+    library(dplyr)
+    library(GSVA)
+    library(ggplot2)
+    library(tidyverse)
+    library(jsonlite)
+    library(fgsea)
+    
     condition_col = "DEGSEA_group"
+    sample_ids = colnames(rnafilt_counts)
+
+    if (is.null(sample_ids)) {
+        stop("rnafilt_counts must provide sample IDs in its column names.")
+    }
+
+    colnames(rnafilt_counts) = trimws(as.character(sample_ids))
+
+    if (any(is.na(colnames(rnafilt_counts)) | !nzchar(colnames(rnafilt_counts)))) {
+        stop("rnafilt_counts contains missing or empty sample IDs in its column names.")
+    }
+
     control_filters = normalize_clinic_filters(control_filters)
     test_filters = normalize_clinic_filters(test_filters)
     control_gene_filter = normalize_group_gene_filters(control_gene_filter)
@@ -63,6 +254,14 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filt
     clinic_annot = ensure_clinic_sample_id_col(filtered_data$clinic_annot)
     output_DESeq = filtered_data$output_path
     filter_suffix = basename(dirname(output_DESeq))
+    available_sample_ids = intersect(clinic_annot$ID_Patient, colnames(rnafilt_counts))
+
+    if (length(available_sample_ids) == 0) {
+        stop(
+            "The global clinic/gene filtering step removed all samples before the control/test groups were defined.\n",
+            "Adjust the filters in 'Filtering on clinic' or 'Filtering on gene'."
+        )
+    }
 
     #### Remove NA and align clinic annot and RNAseq
     clinic_sample_ids = clinic_annot$ID_Patient
@@ -83,11 +282,27 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filt
     test_ids = intersect(test_ids, colnames(rnafilt_counts))
 
     if (length(control_ids) == 0) {
-        stop("The control-group filters do not match any sample after filtering.")
+        stop(build_empty_group_error_message(
+            "control",
+            diagnose_group_matching(
+                clinic_annot = clinic_annot,
+                rnafilt_counts = rnafilt_counts,
+                clinic_filters = control_filters,
+                group_gene_filter = control_gene_filter
+            )
+        ))
     }
 
     if (length(test_ids) == 0) {
-        stop("The test-group filters do not match any sample after filtering.")
+        stop(build_empty_group_error_message(
+            "test",
+            diagnose_group_matching(
+                clinic_annot = clinic_annot,
+                rnafilt_counts = rnafilt_counts,
+                clinic_filters = test_filters,
+                group_gene_filter = test_gene_filter
+            )
+        ))
     }
 
     overlapping_ids = intersect(control_ids, test_ids)

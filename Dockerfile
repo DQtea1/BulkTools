@@ -74,17 +74,22 @@ RUN conda install -y -n BulkTools \
     --strict-channel-priority \
     r-tidyverse \
     r-reticulate \
-    bioconductor-org.hs.eg.db \
     bioconductor-tximport \
     bioconductor-genomeinfodb \
     bioconductor-annotationdbi \
     bioconductor-fgsea \
     bioconductor-gsva \
     bioconductor-deseq2 \
-    bioconductor-limma
+    bioconductor-limma \
+    bioconductor-outrider \
+    bioconductor-txdb.hsapiens.ucsc.hg19.knowngene \ 
+    bioconductor-org.hs.eg.db
+
 
 # test
-RUN conda run -n BulkTools R -q -e "library(shiny); library(shinyFiles); library(fs); library(optparse); library(tidyestimate); library(tidyverse); library(org.Hs.eg.db); library(tximport); library(GenomeInfoDb); library(AnnotationDbi); library(fgsea); library(GSVA); library(DESeq2); library(jsonlite); library(data.table); library(Matrix); cat('Docker image OK\\n')"
+RUN conda run -n BulkTools R -q -e "library(shiny); library(shinyFiles); library(fs); library(optparse); library(tidyverse); cat('Docker image 1/2 OK\\n')"
+RUN conda run -n BulkTools R -q -e "library(org.Hs.eg.db); library(tidyestimate); library(tximport); library(GenomeInfoDb); library(AnnotationDbi); cat('Docker image 2/3 OK\\n')"
+RUN conda run -n BulkTools R -q -e "library(fgsea); library(GSVA); library(DESeq2); library(jsonlite); library(data.table); library(Matrix); library(OUTRIDER); cat('Docker image 3/3 OK\\n')"
 
 COPY demarreur_app.R /app/demarreur_app.R
 COPY app/ /app/

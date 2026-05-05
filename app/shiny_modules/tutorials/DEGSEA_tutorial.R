@@ -14,8 +14,9 @@ degsea_tutorial_card <- function() {
       tags$ul(
         tags$li("Load one bulk expression matrix and one clinical annotation table."),
         tags$li("Optionally pre-filter the dataset on one or more clinical variables."),
-        tags$li("Optionally pre-filter the dataset on one gene-expression threshold."),
-        tags$li("Build the control and test groups from multiple clinical filters and multiple gene-expression rules."),
+        tags$li("Optionally pre-filter the dataset on one or more gene-expression thresholds."),
+        tags$li("Build the control and test groups from multiple clinical filters and multiple gene-expression thresholds."),
+        tags$li("Select the pathway to perform gene set enrichment on."),
         tags$li("Run differential expression and pathway analyses on the resulting sample selection.")
       ),
 
@@ -33,6 +34,7 @@ degsea_tutorial_card <- function() {
           tags$strong("Filtering on clinic"),
           tags$ul(
             tags$li("Optional global pre-filter applied before DEGSEA."),
+            tags$li("Hold ", tags$code("Ctrl"), " or ", tags$code("Cmd"), " while clicking to select several modalities."),
             tags$li("Use the ", tags$code("+"), " button to add one or more clinical filters."),
             tags$li("Within one row, multiple modalities are combined with OR."),
             tags$li("Across rows, filters are combined with AND.")
@@ -51,7 +53,6 @@ degsea_tutorial_card <- function() {
             tags$li(tags$strong("DESeq covariates"), ": optional covariates added to the DESeq2 design."),
             tags$li(tags$strong("Control group definition *"), ": use clinical filters and optional expression filters to define the control samples."),
             tags$li(tags$strong("Test group definition *"), ": use clinical filters and optional expression filters to define the test samples."),
-            tags$li("For control and test definitions, rows are combined by intersection."),
             tags$li(tags$strong("GSEA geneset *"), ": choose the pathway collection used for GSEA, GESECA, and ssGSEA.")
           )
         ),

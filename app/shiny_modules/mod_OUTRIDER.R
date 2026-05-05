@@ -1,166 +1,199 @@
 # shiny_modules/mod_OUTRIDER.R
 mod_outrider_ui <- function(id) {
   ns <- NS(id)
+  responsive_plot_frame <- function(...) {
+    div(class = "outrider-plot-frame", ...)
+  }
 
-  page_sidebar(
-    sidebar = sidebar(
-      accordion(
-        id = ns("outrider_acc"),
-        open = FALSE,
-        multiple = TRUE,
+  tagList(
+    tags$style(HTML("
+      .outrider-plot-frame {
+        height: clamp(320px, 72vh, 900px);
+      }
+      .outrider-plot-frame .shiny-plot-output,
+      .outrider-plot-frame .shiny-image-output {
+        width: 100% !important;
+        height: 100% !important;
+      }
+      .outrider-plot-frame .shiny-image-output {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .outrider-plot-frame .shiny-image-output img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+    ")),
+    page_sidebar(
+      sidebar = sidebar(
+        accordion(
+          id = ns("outrider_acc"),
+          open = FALSE,
+          multiple = TRUE,
 
-        accordion_panel(
-          "Files *",
-          fileInput(ns("bulk_file"),   "Bulk path : *",   accept = c(".csv", ".tsv")),
-          fileInput(ns("clinic_file"), "Clinic path : *", accept = c(".csv", ".tsv")),
-          shinyFiles::shinyDirButton(ns("output_dir"), "Output directory : *", "Upload")
-        ),
+          accordion_panel(
+            "Files *",
+            fileInput(ns("bulk_file"),   "Bulk path : *",   accept = c(".csv", ".tsv")),
+            fileInput(ns("clinic_file"), "Clinic path : *", accept = c(".csv", ".tsv")),
+            shinyFiles::shinyDirButton(ns("output_dir"), "Output directory : *", "Upload")
+          ),
 
-        accordion_panel(
-          "Parameters *",
-          div(
-            selectizeInput(
-              ns("samples_to_exclude"), "Samples to exclude :",
-              choices = character(0),
-              multiple = TRUE,
-              options = list(placeholder = "Select sample IDs to exclude…")
+          accordion_panel(
+            "Parameters *",
+            div(
+              selectizeInput(
+                ns("samples_to_exclude"), "Samples to exclude :",
+                choices = character(0),
+                multiple = TRUE,
+                options = list(placeholder = "Select sample IDs to exclude…")
+              ),
+              div(
+                class = "d-flex justify-content-end mb-2",
+                actionButton(
+                  ns("clear_samples_to_exclude"),
+                  label = NULL,
+                  icon = icon("trash"),
+                  class = "btn btn-sm btn-outline-danger"
+                )
+              )
             ),
             div(
-              class = "d-flex justify-content-end mb-2",
-              actionButton(
-                ns("clear_samples_to_exclude"),
-                label = NULL,
-                icon = icon("trash"),
-                class = "btn btn-sm btn-outline-danger"
+              selectInput(
+                ns("confounders"), "Confounders :",
+                choices = character(0),
+                multiple = TRUE, selectize = FALSE, size = 7
+              ),
+              div(
+                class = "d-flex justify-content-end mb-2",
+                actionButton(
+                  ns("clear_confounders"),
+                  label = NULL,
+                  icon = icon("trash"),
+                  class = "btn btn-sm btn-outline-danger"
+                )
               )
-            )
-          ),
-          div(
-            selectInput(
-              ns("confounders"), "Confounders :",
-              choices = character(0),
-              multiple = TRUE, selectize = FALSE, size = 7
             ),
             div(
-              class = "d-flex justify-content-end mb-2",
-              actionButton(
-                ns("clear_confounders"),
-                label = NULL,
-                icon = icon("trash"),
-                class = "btn btn-sm btn-outline-danger"
+              selectizeInput(
+                ns("label_col"), "Labelizing column :",
+                choices = character(0),
+                multiple = FALSE,
+                options = list(placeholder = "Select a column for labelling samples in plots…")
+              ),
+              div(
+                class = "d-flex justify-content-end mb-2",
+                actionButton(
+                  ns("clear_label_col"),
+                  label = NULL,
+                  icon = icon("trash"),
+                  class = "btn btn-sm btn-outline-danger"
+                )
               )
-            )
-          ),
-          div(
-            selectizeInput(
-              ns("label_col"), "Grouping column :",
-              choices = character(0),
-              multiple = FALSE,
-              options = list(placeholder = "Select a column for labelling samples in plots…")
             ),
             div(
-              class = "d-flex justify-content-end mb-2",
-              actionButton(
-                ns("clear_label_col"),
-                label = NULL,
-                icon = icon("trash"),
-                class = "btn btn-sm btn-outline-danger"
+              selectizeInput(
+                ns("volcano_samples"), "Samples to volcano :",
+                choices = character(0),
+                multiple = TRUE,
+                options = list(placeholder = "Select sample IDs for volcano plots…")
+              ),
+              div(
+                class = "d-flex justify-content-end mb-2",
+                actionButton(
+                  ns("clear_volcano_samples"),
+                  label = NULL,
+                  icon = icon("trash"),
+                  class = "btn btn-sm btn-outline-danger"
+                )
               )
-            )
-          ),
-          div(
-            selectizeInput(
-              ns("volcano_samples"), "Samples to volcano :",
-              choices = character(0),
-              multiple = TRUE,
-              options = list(placeholder = "Select sample IDs for volcano plots…")
             ),
             div(
-              class = "d-flex justify-content-end mb-2",
-              actionButton(
-                ns("clear_volcano_samples"),
-                label = NULL,
-                icon = icon("trash"),
-                class = "btn btn-sm btn-outline-danger"
+              selectizeInput(
+                ns("plot_genes"), "Genes to plot :",
+                choices = character(0),
+                multiple = TRUE,
+                options = list(placeholder = "Type a gene symbol…")
+              ),
+              div(
+                class = "d-flex justify-content-end mb-2",
+                actionButton(
+                  ns("clear_plot_genes"),
+                  label = NULL,
+                  icon = icon("trash"),
+                  class = "btn btn-sm btn-outline-danger"
+                )
               )
-            )
-          ),
-          div(
-            selectizeInput(
-              ns("plot_genes"), "Genes to plot :",
-              choices = character(0),
-              multiple = TRUE,
-              options = list(placeholder = "Type a gene symbol…")
             ),
-            div(
-              class = "d-flex justify-content-end mb-2",
-              actionButton(
-                ns("clear_plot_genes"),
-                label = NULL,
-                icon = icon("trash"),
-                class = "btn btn-sm btn-outline-danger"
-              )
+            numericInput(
+              ns("iterations"), "Iterations for confounder control :",
+              value = 3, min = 1, max = 20, step = 1
             )
-          ),
-          numericInput(
-            ns("iterations"), "Iterations for confounder control :",
-            value = 3, min = 1, max = 20, step = 1
           )
-        )
+        ),
+        actionButton(ns("run_OUTRIDER"), "Run OUTRIDER")
       ),
-      actionButton(ns("run_OUTRIDER"), "Run OUTRIDER")
-    ),
 
-    navset_card_tab(
-      nav_panel("Logs", card(verbatimTextOutput(ns("logs")))),
-      nav_panel("Aberrant per sample", card(plotOutput(ns("aberrant_per_sample"), height = 450))),
-      nav_panel("Results", card(DT::DTOutput(ns("results_table")))),
-      nav_panel(
-        "Volcano",
-        card(
-          div(
-            class = "mb-2",
-            shinyFiles::shinyFilesButton(
-              ns("pick_volcano"),
-              label = "Open volcano plot",
-              title = "Select a volcano plot to display",
-              multiple = FALSE,
-              icon = icon("folder-open")
+      navset_card_tab(
+        nav_panel("Tutorial", outrider_tutorial_card()),
+        nav_panel("Logs", card(verbatimTextOutput(ns("logs")))),
+        nav_panel(
+          "Aberrant per sample",
+          card(
+            responsive_plot_frame(
+              plotOutput(ns("aberrant_per_sample"), width = "100%", height = "100%")
             )
-          ),
-          tabsetPanel(id = ns("volcano_tabs"))
-        )
-      ),
-      nav_panel(
-        "Expression rank",
-        card(
-          div(
-            class = "mb-2",
-            shinyFiles::shinyFilesButton(
-              ns("pick_rank"),
-              label = "Open expression rank plot",
-              title = "Select an expression rank plot to display",
-              multiple = FALSE,
-              icon = icon("folder-open")
-            )
-          ),
-          tabsetPanel(id = ns("rank_tabs"))
-        )
-      ),
-      nav_panel(
-        "Expected vs observed",
-        card(
-          div(
-            class = "mb-2",
-            shinyFiles::shinyFilesButton(
-              ns("pick_exp"),
-              label = "Open expected vs observed plot",
-              title = "Select an expected vs observed plot to display",
-              multiple = FALSE,
-              icon = icon("folder-open")
-            )
-          ),
-          tabsetPanel(id = ns("exp_tabs"))
+          )
+        ),
+        nav_panel("Results", card(DT::DTOutput(ns("results_table")))),
+        nav_panel(
+          "Volcano",
+          card(
+            div(
+              class = "mb-2",
+              shinyFiles::shinyFilesButton(
+                ns("pick_volcano"),
+                label = "Open volcano plot",
+                title = "Select a volcano plot to display",
+                multiple = FALSE,
+                icon = icon("folder-open")
+              )
+            ),
+            tabsetPanel(id = ns("volcano_tabs"))
+          )
+        ),
+        nav_panel(
+          "Expression rank",
+          card(
+            div(
+              class = "mb-2",
+              shinyFiles::shinyFilesButton(
+                ns("pick_rank"),
+                label = "Open expression rank plot",
+                title = "Select an expression rank plot to display",
+                multiple = FALSE,
+                icon = icon("folder-open")
+              )
+            ),
+            tabsetPanel(id = ns("rank_tabs"))
+          )
+        ),
+        nav_panel(
+          "Expected vs observed",
+          card(
+            div(
+              class = "mb-2",
+              shinyFiles::shinyFilesButton(
+                ns("pick_exp"),
+                label = "Open expected vs observed plot",
+                title = "Select an expected vs observed plot to display",
+                multiple = FALSE,
+                icon = icon("folder-open")
+              )
+            ),
+            tabsetPanel(id = ns("exp_tabs"))
+          )
         )
       )
     )
@@ -290,7 +323,10 @@ mod_outrider_server <- function(id, roots = c(home = "~")) {
           tabPanel(
             title = basename(file_path),
             value = file_path,
-            imageOutput(ns(output_id), height = "600px")
+            div(
+              class = "outrider-plot-frame",
+              imageOutput(ns(output_id), width = "100%", height = "100%")
+            )
           ),
           session = session,
           select = TRUE

@@ -49,6 +49,7 @@ RUN conda run -n BulkTools conda install -y -c conda-forge \
     r-shiny \
     r-shinyfiles \
     r-fs \
+    r-ggrepel \
     r-glmnet \
     r-survminer \
     r-survival \

@@ -127,28 +127,46 @@ OUTRIDER_pipe <- function(rnafilt_counts,
     plot_genes <- unique(as.character(res_df$geneID))
   }
 
-  colData(ods_filt)$label_col <- factor(
-    clinic_annot[[label_column]],
-    levels = unique(clinic_annot[[label_column]])
-  )
+  ## Align clinic_annot to ods_filt sample order before labelling ##
+  sample_order <- as.character(colnames(ods_filt))
+  use_label <- !is.null(label_column) &&
+               nzchar(label_column) &&
+               label_column %in% colnames(clinic_annot)
+
+  if (use_label) {
+    clinic_aligned <- clinic_annot[match(sample_order, clinic_annot$ID_Patient), , drop = FALSE]
+    label_vec <- clinic_aligned[[label_column]]
+    colData(ods_filt)$label_col <- factor(
+      label_vec,
+      levels = unique(label_vec[!is.na(label_vec)])
+    )
+    groups_vec <- as.character(colData(ods_filt)$label_col)
+  } else {
+    groups_vec <- NULL
+  }
 
   for (gene in plot_genes) {
-    p_rank <- plotExpressionRank(
+    rank_args <- list(
       ods_filt,
       geneID   = gene,
       basePlot = TRUE,
       log      = TRUE,
-      groups = as.character(colData(ods_filt)$label_col),
       norm     = TRUE
     )
-    ggsave(file.path(rank_dir, paste0(gene, ".png")), p_rank)
-
-    p_exp <- plotExpectedVsObservedCounts(
+    exp_args <- list(
       ods_filt,
       geneID   = gene,
-      basePlot = TRUE,
-      groups = as.character(colData(ods_filt)$label_col)
+      basePlot = TRUE
     )
+    if (!is.null(groups_vec)) {
+      rank_args$groups <- groups_vec
+      exp_args$groups  <- groups_vec
+    }
+
+    p_rank <- do.call(plotExpressionRank, rank_args)
+    ggsave(file.path(rank_dir, paste0(gene, ".png")), p_rank)
+
+    p_exp <- do.call(plotExpectedVsObservedCounts, exp_args)
     ggsave(file.path(exp_dir, paste0(gene, ".png")), p_exp)
   }
 

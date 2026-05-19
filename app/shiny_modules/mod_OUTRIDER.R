@@ -94,7 +94,7 @@ mod_outrider_ui <- function(id) {
             ),
             div(
               selectizeInput(
-                ns("volcano_samples"), "Samples to volcano :",
+                ns("volcano_samples"), "Samples to plot in volcano :",
                 choices = character(0),
                 multiple = TRUE,
                 options = list(placeholder = "Select sample IDs for volcano plots…")

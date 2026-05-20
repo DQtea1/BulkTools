@@ -240,8 +240,10 @@ mod_outrider_server <- function(id, roots = c(home = "~")) {
 
     observeEvent(input$clinic_file, {
       req(clinic_df())
-      updateSelectInput(session, "label_col", choices = names(clinic_df()), selected = NULL)
-      updateSelectInput(session, "confounders", choices = names(clinic_df()), selected = NULL)
+      clinic_cols <- names(clinic_df())
+      label_cols  <- setdiff(clinic_cols, c("ID_Patient", "sampleID"))
+      updateSelectizeInput(session, "label_col", choices = label_cols, selected = "", server = TRUE)
+      updateSelectInput(session, "confounders", choices = clinic_cols, selected = NULL)
       updateSelectizeInput(session, "samples_to_exclude", choices = sample_id_choices(), server = TRUE)
       updateSelectizeInput(session, "volcano_samples",   choices = sample_id_choices(), server = TRUE)
     })

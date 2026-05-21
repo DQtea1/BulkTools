@@ -14,7 +14,8 @@
 # WITH DOCKER (recommanded) : 
 
 ## Install Docker Desktop
-Download docker desktop then open it :\n
+Download docker desktop then open it :
+
 https://docs.docker.com/desktop/setup/install/windows-install/
 
 ## Pull the docker image from Dockerhub :

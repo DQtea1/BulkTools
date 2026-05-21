@@ -14,14 +14,14 @@
 # WITH DOCKER (recommanded) : 
 
 ## Install Docker Desktop
-Download docker desktop then open it :
+Download docker desktop then open it :\n
 https://docs.docker.com/desktop/setup/install/windows-install/
 
 ## Pull the docker image from Dockerhub :
 Run in the terminal :
 > docker pull qtea1/bulktools:latest
 
-## RUN FOR WINDOWS (two options) : 
+## FOR WINDOWS (two options) : 
 ### Click style (option1 easiest) :
 Run "windows_launcher.bat" file as administrator. It will open a powershell window as well as a browser tab. If the browser tab doesn't show anything after 10sec, refresh it. 
 

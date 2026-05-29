@@ -14,6 +14,7 @@ univariate_cox_pipe <- function(rnafilt_counts,
                                 top_n_label = 50,
                                 label_filter_pattern = NULL,
                                 pathways_to_use = "REACTOME_pathways",
+                                gsea_min_size = 10,
                                 gsea_pval_thr = 0.01,
                                 gsea_top_n = 70) {
   library(survival)
@@ -188,7 +189,7 @@ univariate_cox_pipe <- function(rnafilt_counts,
   res_gsea <- fgseaMultilevel(
     pathways = selected_pathways,
     stats    = ranked_genes,
-    minSize  = 10,
+    minSize  = gsea_min_size,
     maxSize  = 500
   )
 

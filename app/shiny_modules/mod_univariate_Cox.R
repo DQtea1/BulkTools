@@ -75,10 +75,14 @@ mod_univariate_cox_ui <- function(id) {
           selectInput(
             ns("GSEA_geneset"), "GSEA geneset : *",
             choices = c("all_pathways", "REACTOME_pathways", "GOBP_pathways",
-                        "KEGG_pathways", "QoL_pathways", "transcript_factor_target",
-                        "boyault_sets"),
+                        "KEGG_pathways", "BIOCARTA_pathways", "QoL_pathways",
+                        "transcript_factor_target", "boyault_sets"),
             selected = "REACTOME_pathways",
             multiple = FALSE, selectize = FALSE, size = 4
+          ),
+          numericInput(
+            ns("min_size"), "Minimum gene set size :",
+            value = 10, min = 1, max = 1000, step = 1
           )
         )
       ),
@@ -290,7 +294,8 @@ mod_univariate_cox_server <- function(id, roots = c(home = "~")) {
           keep_low_or_high      = input$low_or_high,
           top_n_label           = input$top_n_label,
           label_filter_pattern  = input$label_filter_pattern,
-          pathways_to_use       = input$GSEA_geneset
+          pathways_to_use       = input$GSEA_geneset,
+          gsea_min_size         = input$min_size
         )
         incProgress(1)
         res

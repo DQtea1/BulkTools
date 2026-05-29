@@ -67,6 +67,7 @@ c2_gene_sets = normalize_gene_set_collection(
 
 REACTOME_pathways = c2_gene_sets[grepl("REACTOME", names(c2_gene_sets), fixed = TRUE)]
 KEGG_pathways = c2_gene_sets[grepl("KEGG", names(c2_gene_sets), fixed = TRUE)]
+BIOCARTA_pathways = c2_gene_sets[grepl("BIOCARTA", names(c2_gene_sets), fixed = TRUE)]
 
 GOBP_pathways = normalize_gene_set_collection(
   all_pathways_raw$c5[grepl("GOBP", names(all_pathways_raw$c5), fixed = TRUE)],

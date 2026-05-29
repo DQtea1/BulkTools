@@ -67,8 +67,13 @@ mod_anchored_gsea_ui <- function(id) {
           ),
           selectInput(
             ns("GSEA_geneset"), "GSEA geneset : *",
-            choices = c("all_pathways", "REACTOME_pathways", "GOBP_pathways", "KEGG_pathways"),
+            choices = c("all_pathways", "REACTOME_pathways", "GOBP_pathways",
+                        "KEGG_pathways", "BIOCARTA_pathways"),
             multiple = FALSE, selectize = FALSE, size = 4
+          ),
+          numericInput(
+            ns("min_size"), "Minimum gene set size :",
+            value = 10, min = 1, max = 1000, step = 1
           )
         )
       ),
@@ -282,6 +287,7 @@ mod_anchored_gsea_server <- function(id, roots = c(home = "~")) {
           adjust_on_ESTIMATE = adjust_on_cell_fraction_str(),
           anchor_gene        = input$anchor_gene,
           pathways_to_use    = input$GSEA_geneset,
+          min_size           = input$min_size,
           clinic_filters     = clinic_filters(),
           filter_by_gene     = input$gene_filt,
           quantile_thr       = input$quantile,

@@ -90,10 +90,10 @@ doDGE <- function(rnamat, annot, design){
 }
 
 # GSEA
-gsea_multi <- function(vec_gene, pathw_to_use) {
+gsea_multi <- function(vec_gene, pathw_to_use, min_size = 1) {
   library(fgsea)
 
-  res <- fgseaMultilevel(pathw_to_use, vec_gene, BPPARAM = BiocParallel::MulticoreParam(6))#, scoreType = "pos")
+  res <- fgseaMultilevel(pathw_to_use, vec_gene, minSize = min_size, BPPARAM = BiocParallel::MulticoreParam(6))#, scoreType = "pos")
   lE_list = res$leadingEdge
   lE_vector = sapply(lE_list, paste, collapse=", ")
   res$leadingEdge = lE_vector

@@ -32,7 +32,7 @@ Run "windows_launcher.bat" file as administrator. It will open a powershell wind
     -e SHINY_PORT=5288 `
     -e SHINY_ROOT_PATH=/browse `
     -e SHINY_ROOT_NAME=home `
-    --mount type=bind,source="C:\Users\Quentin\Documents",target=/browse `
+    --mount type=bind,source="C:\Users\username\Documents",target=/browse `
     --mount type=bind,source="C:\shiny_out",target=/out `
     qtea1/bulktools
 nb : You should edit the mount paths so that they correspond to your device's.
@@ -43,6 +43,6 @@ nb : You should edit the mount paths so that they correspond to your device's.
     -e SHINY_PORT=5288 \
     -e SHINY_ROOT_PATH=/browse \
     -e SHINY_ROOT_NAME=home \
-    -v /home/quentin:/browse \
+    -v /home/user:/browse \
     -v /home:/out \
     qtea1/bulktools

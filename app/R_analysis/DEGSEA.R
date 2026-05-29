@@ -179,8 +179,8 @@ build_empty_group_error_message <- function(group_label, diagnostics) {
 
 
 DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filters, output_dir, pathways_to_use,
-                        filter_by_gene = NULL, keep_low_or_high = NULL, quantile_thr = NULL, covariates = NULL, 
-                        clinic_filters = NULL, control_gene_filter = NULL, test_gene_filter = NULL)
+                        filter_by_gene = NULL, keep_low_or_high = NULL, quantile_thr = NULL, covariates = NULL,
+                        clinic_filters = NULL, control_gene_filter = NULL, test_gene_filter = NULL, min_size = 15)
     {
     library(DESeq2)
     library(dplyr)
@@ -438,7 +438,7 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filt
     if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
     write.table(ranked_gene_df, paste0(output_DESeq, "/ranked_genes.rnk"))
 
-    gsea_results = gsea_multi(ranked_gene_vec, selected_pathways)
+    gsea_results = gsea_multi(ranked_gene_vec, selected_pathways, min_size = min_size)
 
     pvals = gsea_results$pval
     names(pvals) = gsea_results$pathway
@@ -477,7 +477,7 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filt
     rnafilt_norm_cent_noNA = scale(rnafilt_norm_noNA)
 
 
-    geseca_results = as.data.frame(geseca(selected_pathways, rnafilt_norm_cent_noNA, minSize = 15, maxSize = 100000, eps = 0))
+    geseca_results = as.data.frame(geseca(selected_pathways, rnafilt_norm_cent_noNA, minSize = min_size, maxSize = 100000, eps = 0))
     rownames(geseca_results) = geseca_results$pathway
 
     ordered_ss = geseca_results[order(geseca_results$pctVar, decreasing = TRUE), ]
@@ -495,6 +495,7 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filt
     sp = ssgseaParam(
     as.matrix(rnafilt_noNA),
     selected_pathways,
+    minSize = min_size,
     alpha = 0.25,
     normalize = TRUE   # = active la normalisation ssGSEA
     )

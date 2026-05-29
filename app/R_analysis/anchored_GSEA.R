@@ -5,8 +5,8 @@ adjust_on_ESTIMATE =  "immune_score+stromal_score"  # = stromal_score, immune_sc
 
 
 anchored_GSEA_pipe <- function(rnafilt_counts, clinic_annot, output_dir, anchor_gene, pathways_to_use,
-                        filter_by_gene, keep_low_or_high, quantile_thr = NULL, adjust_on_ESTIMATE = NULL, 
-                        clinic_filters = NULL)
+                        filter_by_gene, keep_low_or_high, quantile_thr = NULL, adjust_on_ESTIMATE = NULL,
+                        clinic_filters = NULL, min_size = 10)
     {
     library(data.table)
     library(fgsea)
@@ -59,7 +59,7 @@ anchored_GSEA_pipe <- function(rnafilt_counts, clinic_annot, output_dir, anchor_
         names(ranks) <- rownames(tt)
         ranks <- ranks[names(ranks) != anchor_gene]  # On enleve BSG prck forcement il est corrélé à lui même
 
-        res_adjusted <- fgseaMultilevel(pathways=selected_pathways, stats=ranks, minSize=10, maxSize=10000)
+        res_adjusted <- fgseaMultilevel(pathways=selected_pathways, stats=ranks, minSize=min_size, maxSize=10000)
         res_adjusted <- res_adjusted[order(abs(res_adjusted$padj), decreasing = FALSE), ]
         res_adjusted = flatten_list_cols(res_adjusted)
 
@@ -83,7 +83,7 @@ anchored_GSEA_pipe <- function(rnafilt_counts, clinic_annot, output_dir, anchor_
         stats <- stats[names(stats) != anchor_gene]  # On enleve BSG prck forcement il est corrélé à lui même
 
         # selected_pathways: named list of character vectors (gene symbols)
-        res_simple <- fgseaMultilevel(pathways = selected_pathways, stats = stats, minSize = 10, maxSize = 500)
+        res_simple <- fgseaMultilevel(pathways = selected_pathways, stats = stats, minSize = min_size, maxSize = 500)
         res_simple <- res_simple[order(abs(res_simple$padj), decreasing = FALSE), ]
 
         res_simple = flatten_list_cols(res_simple)

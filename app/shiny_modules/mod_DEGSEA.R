@@ -105,10 +105,14 @@ mod_degsea_ui <- function(id) {
           ),
           selectInput(
             ns("GSEA_geneset"), "GSEA geneset : *",
-            choices = c("all_pathways", "REACTOME_pathways", "GOBP_pathways", 
-                        "KEGG_pathways", "QoL_pathways", "transcript_factor_target",
-                        "boyault_sets"),
+            choices = c("all_pathways", "REACTOME_pathways", "GOBP_pathways",
+                        "KEGG_pathways", "BIOCARTA_pathways", "QoL_pathways",
+                        "transcript_factor_target", "boyault_sets"),
             multiple = FALSE, selectize = FALSE, size = 4
+          ),
+          numericInput(
+            ns("min_size"), "Minimum gene set size :",
+            value = 15, min = 1, max = 1000, step = 1
           )
         )
       ),
@@ -493,6 +497,7 @@ mod_degsea_server <- function(id, roots = c(home = "~")) {
           control_filters    = control_filters(),
           test_filters       = test_filters(),
           pathways_to_use    = input$GSEA_geneset,
+          min_size           = input$min_size,
           output_dir         = output_dir_path(),
           covariates         = input$DESeq_covar,
           clinic_filters     = clinic_filters(),

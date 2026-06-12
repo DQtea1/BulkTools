@@ -38,9 +38,9 @@ signature_proj_pipe = function(rnafilt_counts, clinic_annot,
     ID_ref_samples   = prepared_data$ID_ref_samples
     sample_name      = prepared_data$sample_name
 
-    reference_scores = compute_signature_score(merged_bulks_vst[, ID_ref_samples, drop = FALSE], signature_to_use)
+    reference_scores = compute_signature_score(merged_bulks_vst[, ID_ref_samples, drop = FALSE], signature_to_use, scale_by_sum_abs = TRUE)
 
-    sample_score = compute_signature_score(merged_bulks_vst[, sample_name, drop = FALSE], signature_to_use)
+    sample_score = compute_signature_score(merged_bulks_vst[, sample_name, drop = FALSE], signature_to_use, scale_by_sum_abs = TRUE)
     
     # 1st panel : Quantile + sample projection + accuracy metrics in python :
     clean_ids = function(x) {

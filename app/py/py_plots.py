@@ -633,21 +633,16 @@ def my_Box_Wilcox(df, responders, non_responders, score_col="score",
 
     # Default: save PNG and return path (best for R/Shiny)
     if out_dir is None:
-        fd, out_dir = tempfile.mkstemp(suffix=".png")
-        os.close(fd)
+        out_dir = tempfile.mkdtemp()
 
-    fig.savefig(Path(out_dir)/"wilcox_boxplot.png", dpi=150, bbox_inches="tight")
+    out_dir = Path(out_dir).expanduser()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    save_path = out_dir / "wilcox_boxplot.png"
+    fig.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
-    result["plot_path"] = out_dir
-
-    if out_dir is not None : 
-        save_path = Path(out_dir) / "wilcox_boxplot.png"
-        fig.savefig(save_path, dpi=150, bbox_inches="tight")
-    else :
-        save_path = None
-        
-    return {"plot" : fig, "save_path" : save_path}
+    result["save_path"] = str(save_path)
+    return {"plot": fig, "save_path": str(save_path), **result}
 
 
 def myROC_AUC(df, responders, non_responders,

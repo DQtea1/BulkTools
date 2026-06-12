@@ -1,12 +1,13 @@
 
 
-signature_proj_pipe = function(rnafilt_counts, clinic_annot, 
+signature_proj_pipe = function(rnafilt_counts, clinic_annot,
                                 output_dir, therapy_used, signature_name,
-                                signature_to_use, sample_to_project_path, 
+                                signature_to_use, sample_to_project_path,
                                 contrast, resp_var, non_resp_var, clinic_filters = NULL,
                                 filter_by_gene, keep_low_or_high, quantile_thr,
-                                survival_time_col = "delpfs", event_realization_col = "PFS", 
-                                sample_ID_col = "ID_Patient", group_quantile = "median"){
+                                survival_time_col = "delpfs", event_realization_col = "PFS",
+                                sample_ID_col = "ID_Patient", group_quantile = "median",
+                                do_km_plot = TRUE){
     library(reticulate)
 
     use_python("/opt/conda/envs/BulkTools/bin/python", required = TRUE)
@@ -50,10 +51,80 @@ signature_proj_pipe = function(rnafilt_counts, clinic_annot,
     unique(x)
     }
 
-    responder_ids     = clean_ids(clinic_annot[clinic_annot[[contrast]] == resp_var, "ID_Patient"])
-    non_responder_ids = clean_ids(clinic_annot[clinic_annot[[contrast]] == non_resp_var, "ID_Patient"])
-    responder_ids     = intersect(responder_ids, ID_ref_samples)
-    non_responder_ids = intersect(non_responder_ids, ID_ref_samples)
+    if (is.null(contrast) || length(contrast) == 0 || !nzchar(contrast)) {
+        stop("Please select a single clinical column under 'Contrast'.")
+    }
+    if (length(contrast) > 1) {
+        stop("Only one clinical column can be used as 'Contrast'.")
+    }
+    if (!contrast %in% colnames(clinic_annot)) {
+        stop(sprintf("Contrast column '%s' not found in clinic_annot.", contrast))
+    }
+    if (is.null(resp_var) || length(resp_var) == 0 || all(!nzchar(resp_var))) {
+        stop("Please select at least one modality under 'Responders'.")
+    }
+    if (is.null(non_resp_var) || length(non_resp_var) == 0 || all(!nzchar(non_resp_var))) {
+        stop("Please select at least one modality under 'Non-Responders'.")
+    }
+
+    if (!"ID_Patient" %in% colnames(clinic_annot)) {
+        if (!is.null(rownames(clinic_annot))) {
+            clinic_annot$ID_Patient <- rownames(clinic_annot)
+        } else {
+            stop("clinic_annot has no 'ID_Patient' column and no rownames; cannot identify samples.")
+        }
+    }
+
+    clinic_ids_all    = trimws(as.character(clinic_annot$ID_Patient))
+    ref_ids_all       = trimws(as.character(ID_ref_samples))
+    contrast_values   = trimws(as.character(clinic_annot[[contrast]]))
+    resp_var_trim     = trimws(as.character(resp_var))
+    non_resp_var_trim = trimws(as.character(non_resp_var))
+
+    resp_mask         = contrast_values %in% resp_var_trim
+    non_resp_mask     = contrast_values %in% non_resp_var_trim
+
+    responder_ids_raw     = clean_ids(clinic_ids_all[resp_mask])
+    non_responder_ids_raw = clean_ids(clinic_ids_all[non_resp_mask])
+    responder_ids         = intersect(responder_ids_raw,     ref_ids_all)
+    non_responder_ids     = intersect(non_responder_ids_raw, ref_ids_all)
+
+    if (length(responder_ids) < 2 || length(non_responder_ids) < 2) {
+        unique_modalities <- sort(unique(contrast_values))
+        clinic_overlap    <- intersect(clinic_ids_all, ref_ids_all)
+        stop(sprintf(
+            paste0(
+                "Need at least 2 samples per class for nested CV.\n",
+                "--- DIAGNOSTIC ---\n",
+                "clinic_annot rows after filter        : %d\n",
+                "contrast column                       : '%s'\n",
+                "  unique values (first 15)            : %s\n",
+                "  rows where contrast %%in%% [%s]      : %d\n",
+                "  rows where contrast %%in%% [%s]      : %d\n",
+                "reference bulk sample count           : %d\n",
+                "clinic ID_Patient ∩ ref bulk          : %d / %d\n",
+                "  clinic IDs (first 5)                : %s\n",
+                "  ref bulk IDs (first 5)              : %s\n",
+                "responder IDs intersected with bulk   : %d -> [%s]\n",
+                "non-responder IDs intersected w/ bulk : %d -> [%s]\n",
+                "------------------\n",
+                "Common causes: (a) selected modalities do not appear verbatim in the contrast column, ",
+                "(b) clinic ID_Patient values don't match the bulk column names (whitespace, separator, case), ",
+                "(c) clinic_filter / gene_filter dropped all responder or non-responder samples."
+            ),
+            nrow(clinic_annot),
+            contrast,
+            paste(head(unique_modalities, 15), collapse = ", "),
+            paste(resp_var_trim, collapse = ", "), sum(resp_mask),
+            paste(non_resp_var_trim, collapse = ", "), sum(non_resp_mask),
+            length(ref_ids_all),
+            length(clinic_overlap), length(clinic_ids_all),
+            paste(head(clinic_ids_all, 5), collapse = ", "),
+            paste(head(ref_ids_all, 5), collapse = ", "),
+            length(responder_ids),     paste(head(responder_ids, 5), collapse = ", "),
+            length(non_responder_ids), paste(head(non_responder_ids, 5), collapse = ", ")
+        ))
+    }
 
     model_eval_dir = file.path(output_dir, "model_eval")
     dir.create(model_eval_dir, recursive = TRUE, showWarnings = FALSE)
@@ -107,16 +178,33 @@ signature_proj_pipe = function(rnafilt_counts, clinic_annot,
 
 
     # 2nd panel Kaplan-Meier plot in R :
-    KM_plot = Kaplan_Meier_plot(
-                                clinic_annot           = clinic_annot,
-                                subgroup_by            = signature_name,
-                                output_dir             = output_dir,
-                                scores_df              = reference_scores,   
-                                survival_time_col      = survival_time_col,
-                                event_realization_col  = event_realization_col,
-                                group_quantile         = group_quantile,
-                                sample_ID_col          = sample_ID_col
-                                )
+    KM_plot = NULL
+    if (isTRUE(do_km_plot)) {
+        valid_col <- function(x) !is.null(x) && length(x) == 1 && nzchar(x)
+        if (!valid_col(survival_time_col) || !survival_time_col %in% colnames(clinic_annot)) {
+            stop(sprintf(
+                "KM plot requested but 'Survival time column' is missing or not in clinic_annot (got: '%s'). Pick a valid column or set 'Plot KM plot ?' to 'Nein'.",
+                if (is.null(survival_time_col) || length(survival_time_col) == 0) "NULL" else as.character(survival_time_col)
+            ))
+        }
+        if (!valid_col(event_realization_col) || !event_realization_col %in% colnames(clinic_annot)) {
+            stop(sprintf(
+                "KM plot requested but 'Event realization column' is missing or not in clinic_annot (got: '%s'). Pick a valid column or set 'Plot KM plot ?' to 'Nein'.",
+                if (is.null(event_realization_col) || length(event_realization_col) == 0) "NULL" else as.character(event_realization_col)
+            ))
+        }
+
+        KM_plot = Kaplan_Meier_plot(
+                                    clinic_annot           = clinic_annot,
+                                    subgroup_by            = signature_name,
+                                    output_dir             = output_dir,
+                                    scores_df              = reference_scores,
+                                    survival_time_col      = survival_time_col,
+                                    event_realization_col  = event_realization_col,
+                                    group_quantile         = group_quantile,
+                                    sample_ID_col          = sample_ID_col
+                                    )
+    }
 
     # 3rd panel Signature evaluation (ROC curve, boxplot, conf mat? ) in python :
     box_plot = my_Box_Wilcox(

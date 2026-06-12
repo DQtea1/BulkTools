@@ -91,9 +91,9 @@ mod_univariate_cox_ui <- function(id) {
 
     navset_card_tab(
       nav_panel("Logs", card(verbatimTextOutput(ns("logs")))),
-      nav_panel("Volcano", card(plotOutput(ns("volcano"), height = 600))),
+      nav_panel("Volcano", card(div(class = "responsive-plot-frame", plotOutput(ns("volcano"), width = "100%", height = "100%")))),
       nav_panel("Cox results", card(DT::DTOutput(ns("cox_table")))),
-      nav_panel("GSEA dotplot", card(plotOutput(ns("gsea_dotplot"), height = 700))),
+      nav_panel("GSEA dotplot", card(div(class = "responsive-plot-frame", plotOutput(ns("gsea_dotplot"), width = "100%", height = "100%")))),
       nav_panel("GSEA results", card(DT::DTOutput(ns("gsea_table"))))
     )
   )

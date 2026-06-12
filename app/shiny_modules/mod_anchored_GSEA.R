@@ -82,7 +82,7 @@ mod_anchored_gsea_ui <- function(id) {
 
     navset_card_tab(
       nav_panel("Logs", card(verbatimTextOutput(ns("logs")))),
-      nav_panel("Volcano", card(plotOutput(ns("volcano"), height = 450))),
+      nav_panel("Volcano", card(div(class = "responsive-plot-frame", plotOutput(ns("volcano"), width = "100%", height = "100%")))),
       nav_panel("Differential Expression", card(DT::DTOutput(ns("top_DE")))),
       nav_panel("GSEA table",  card(DT::DTOutput(ns("top_GSEA")))),
       nav_panel("GESECA table", card(DT::DTOutput(ns("top_GESECA")))),

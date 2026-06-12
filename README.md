@@ -1,3 +1,5 @@
+docker build -t qtea1/bulktools .
+
 
 # WITHOUT DOCKER :
 1. Set yourself in the same directory as the "app.R" file.

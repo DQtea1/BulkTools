@@ -4,26 +4,6 @@ library(jsonlite)
 mod_signature_proj_ui <- function(id) {
   ns <- NS(id)
   tagList(
-    tags$style(HTML(sprintf("
-      #%s {
-        width: 100%%;
-        height: 100%%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      }
-
-      #%s img {
-        max-width: 100%%;
-        max-height: 100%%;
-        width: auto;
-        height: auto;
-        object-fit: fill;    
-        display: block;
-      }
-    ", ns("projection"), ns("projection")))),
-
     page_sidebar(
       sidebar = sidebar(
         accordion(
@@ -92,7 +72,7 @@ mod_signature_proj_ui <- function(id) {
             selectInput(
               ns("contrast"), "Contrast :",
               choices = character(0),
-              multiple = TRUE, selectize = FALSE, size = 7
+              multiple = FALSE, selectize = FALSE, size = 7
             ),
             selectInput(
               ns("responders"), "Responders :",
@@ -110,6 +90,7 @@ mod_signature_proj_ui <- function(id) {
             selectInput(
               ns("plot_km_or_not"), "Plot KM plot ? :",
               choices = c("Ja", "Nein"),
+              selected = "Nein",
               multiple = FALSE, selectize = FALSE, size = 2
             ),
             selectInput(
@@ -133,14 +114,21 @@ mod_signature_proj_ui <- function(id) {
       ),
       navset_card_tab(
         nav_panel("Logs", card(verbatimTextOutput(ns("logs")))),
-        nav_panel("Projection", card(imageOutput(ns("projection"), height = "575px"))),    
-        nav_panel("Survival analysis", card(imageOutput(ns("KM_plot"), height = 500))),
-        nav_panel("Signature assessment", 
+        nav_panel("Projection",
+                  card(div(class = "responsive-plot-frame",
+                           imageOutput(ns("projection"), width = "100%", height = "100%")))),
+        nav_panel("Survival analysis",
+                  card(div(class = "responsive-plot-frame",
+                           imageOutput(ns("KM_plot"), width = "100%", height = "100%")))),
+        nav_panel("Signature assessment",
                   layout_columns(
                     col_width = c(6, 6, 6),
-                    card(imageOutput(ns("signature_assessment_boxplot"), width = "100%", height = "300px")),
-                    card(imageOutput(ns("signature_assessment_ROC"), width = "100%", height = "300px"))
-                    # card(imageOutput(ns("signature_assessment_conf_mat"), width = "100%", height = "300px"))
+                    card(div(class = "responsive-plot-frame",
+                             imageOutput(ns("signature_assessment_boxplot"), width = "100%", height = "100%"))),
+                    card(div(class = "responsive-plot-frame",
+                             imageOutput(ns("signature_assessment_ROC"), width = "100%", height = "100%")))
+                    # card(div(class = "responsive-plot-frame",
+                    #          imageOutput(ns("signature_assessment_conf_mat"), width = "100%", height = "100%")))
                   )
         )
       )    
@@ -373,6 +361,7 @@ mod_signature_proj_server <- function(id, roots = c(home = "~")) {
           survival_time_col      = input$survival_time_col,
           event_realization_col  = input$event_realization_col,
           group_quantile         = input$group_quantile,
+          do_km_plot             = identical(input$plot_km_or_not, "Ja"),
           clinic_filters         = clinic_filters(),
           filter_by_gene         = input$gene_filt_proj,
           keep_low_or_high       = input$low_or_high_proj,

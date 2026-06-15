@@ -36,12 +36,28 @@ tximport_merge_pipe <- function(bulk_folder,
   }
 
   if (!is.null(file_strip) && nzchar(file_strip)) {
-    keep <- grepl(file_strip, bulk_filenames, fixed = TRUE)
+    # Several suffixes can be given, separated by "|" (e.g. ".tsv|.txt|.csv").
+    strip_tokens <- trimws(strsplit(file_strip, "|", fixed = TRUE)[[1]])
+    strip_tokens <- strip_tokens[nzchar(strip_tokens)]
+    # Strip the longest/most specific tokens first so e.g. "_quantif.tsv"
+    # wins over ".tsv" when both are provided.
+    strip_tokens <- strip_tokens[order(nchar(strip_tokens), decreasing = TRUE)]
+
+    if (length(strip_tokens) == 0) {
+      stop("'File suffix to strip' is non-empty but contains no usable token after splitting on '|'.")
+    }
+
+    keep <- Reduce(`|`, lapply(strip_tokens, function(tok) grepl(tok, bulk_filenames, fixed = TRUE)))
     if (!any(keep)) {
-      stop(sprintf("No files matching suffix '%s' in '%s'.", file_strip, bulk_folder))
+      stop(sprintf("No files matching any suffix [%s] in '%s'.",
+                   paste(strip_tokens, collapse = ", "), bulk_folder))
     }
     bulk_filenames <- bulk_filenames[keep]
-    sample_names   <- sub(file_strip, "", bulk_filenames, fixed = TRUE)
+
+    sample_names <- bulk_filenames
+    for (tok in strip_tokens) {
+      sample_names <- sub(tok, "", sample_names, fixed = TRUE)
+    }
   } else {
     sample_names <- tools::file_path_sans_ext(bulk_filenames)
   }

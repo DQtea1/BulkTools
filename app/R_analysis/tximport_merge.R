@@ -53,28 +53,55 @@ tximport_merge_pipe <- function(bulk_folder,
   bulk_files <- samples$filepath
   names(bulk_files) <- samples$ID_Patient
 
-  ## 2) tximport
-  exemple_bulk <- read.delim(bulk_filepaths[1], sep = "\t")
-  if (ncol(exemple_bulk) < 2) {
-    stop("Quantification files have fewer than 2 columns; cannot derive tx2gene from the first two columns.")
+  ## 2) tximport per file, then merge at the gene level.
+  ##    tximport's batch mode requires identical tx IDs across files; running
+  ##    per file is robust to heterogeneous quant outputs (different reference,
+  ##    missing transcripts) at the cost of one tximport call per sample.
+  counts_list <- vector("list", length(bulk_files))
+  tpm_list    <- vector("list", length(bulk_files))
+  names(counts_list) <- names(bulk_files)
+  names(tpm_list)    <- names(bulk_files)
+
+  for (idx in seq_along(bulk_files)) {
+    sid <- names(bulk_files)[idx]
+    fp  <- bulk_files[[idx]]
+    ex  <- read.delim(fp, sep = "\t")
+    if (ncol(ex) < 2) {
+      stop(sprintf("Quantification file '%s' has fewer than 2 columns; cannot build tx2gene.", fp))
+    }
+    res_i <- tximport(
+      setNames(fp, sid),
+      type                = tx_type,
+      txIn                = tx_txIn,
+      countsFromAbundance = tx_countsFromAbundance,
+      tx2gene             = ex[, 1:2],
+      geneIdCol           = tx_geneIdCol,
+      txIdCol             = tx_txIdCol,
+      abundanceCol        = tx_abundanceCol,
+      countsCol           = tx_countsCol,
+      lengthCol           = tx_lengthCol,
+      ignoreTxVersion     = tx_ignoreTxVersion
+    )
+    counts_list[[sid]] <- setNames(as.numeric(res_i$counts[, 1]),    rownames(res_i$counts))
+    tpm_list[[sid]]    <- setNames(as.numeric(res_i$abundance[, 1]), rownames(res_i$abundance))
   }
 
-  RNAseq_merged <- tximport(
-    bulk_files,
-    type                = tx_type,
-    txIn                = tx_txIn,
-    countsFromAbundance = tx_countsFromAbundance,
-    tx2gene             = exemple_bulk[, 1:2],
-    geneIdCol           = tx_geneIdCol,
-    txIdCol             = tx_txIdCol,
-    abundanceCol        = tx_abundanceCol,
-    countsCol           = tx_countsCol,
-    lengthCol           = tx_lengthCol,
-    ignoreTxVersion     = tx_ignoreTxVersion
-  )
+  all_genes <- sort(Reduce(union, lapply(counts_list, names)))
 
-  RNAseq_counts <- RNAseq_merged$counts
-  RNAseq_TPM    <- RNAseq_merged$abundance
+  assemble_matrix <- function(vec_list, gene_universe, fill = 0) {
+    m <- matrix(fill,
+                nrow = length(gene_universe),
+                ncol = length(vec_list),
+                dimnames = list(gene_universe, names(vec_list)))
+    for (sid in names(vec_list)) {
+      v <- vec_list[[sid]]
+      m[names(v), sid] <- v
+    }
+    m
+  }
+
+  RNAseq_counts <- assemble_matrix(counts_list, all_genes, fill = 0)
+  RNAseq_TPM    <- assemble_matrix(tpm_list,    all_genes, fill = 0)
 
   ## 3) Save the unfiltered triple
   unfiltered_dir <- file.path(output_dir, "00_Unfiltered")

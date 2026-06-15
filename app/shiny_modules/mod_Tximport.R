@@ -97,8 +97,7 @@ mod_tximport_server <- function(id, roots = c(home = "~")) {
     tximport_res <- eventReactive(input$run_tximport, {
       req(bulk_folder_path(), output_dir_path())
 
-      withProgress(message = "Merging & filtering bulks...", value = 0, {
-        incProgress(0.2)
+      withProgress(message = "Merging & filtering bulks...", value = 0.05, {
         res <- tximport_merge_pipe(
           bulk_folder            = bulk_folder_path(),
           output_dir             = output_dir_path(),
@@ -115,9 +114,12 @@ mod_tximport_server <- function(id, roots = c(home = "~")) {
           min_gene_count         = input$min_gene_count,
           min_n_samples          = input$min_n_samples,
           min_seq_depth          = input$min_seq_depth,
-          remove_gene_classes    = or_NULL(input$remove_gene_classes)
+          remove_gene_classes    = or_NULL(input$remove_gene_classes),
+          progress_cb            = function(frac, detail) {
+            setProgress(value = frac, detail = detail)
+          }
         )
-        incProgress(1)
+        setProgress(value = 1, detail = "done")
         res
       })
     })

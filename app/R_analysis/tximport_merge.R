@@ -18,9 +18,16 @@ tximport_merge_pipe <- function(bulk_folder,
                                 min_gene_count = 15,
                                 min_n_samples = 0.33,
                                 min_seq_depth = 30000000,
-                                remove_gene_classes = NULL) {
+                                remove_gene_classes = NULL,
+                                progress_cb = NULL) {
   library(tximport)
   library(ggplot2)
+
+  # Optional progress reporter: progress_cb(frac, detail) with frac in [0, 1].
+  # No-op when called outside Shiny (progress_cb left NULL).
+  report <- function(frac, detail) {
+    if (is.function(progress_cb)) progress_cb(frac, detail)
+  }
 
   if (is.null(bulk_folder) || !nzchar(bulk_folder) || !dir.exists(bulk_folder)) {
     stop(sprintf("Bulk folder does not exist: '%s'", bulk_folder))
@@ -81,6 +88,8 @@ tximport_merge_pipe <- function(bulk_folder,
   for (idx in seq_along(bulk_files)) {
     sid <- names(bulk_files)[idx]
     fp  <- bulk_files[[idx]]
+    report(0.1 + 0.6 * (idx / length(bulk_files)),
+           sprintf("tximport %d/%d : %s", idx, length(bulk_files), sid))
     ex  <- read.delim(fp, sep = "\t")
     if (ncol(ex) < 2) {
       stop(sprintf("Quantification file '%s' has fewer than 2 columns; cannot build tx2gene.", fp))
@@ -102,7 +111,24 @@ tximport_merge_pipe <- function(bulk_folder,
     tpm_list[[sid]]    <- setNames(as.numeric(res_i$abundance[, 1]), rownames(res_i$abundance))
   }
 
-  all_genes <- sort(Reduce(union, lapply(counts_list, names)))
+  # Drop transcripts that summarized to a missing/empty gene name (NA or ""),
+  # and collapse any duplicate gene names within a sample by summing. Without
+  # this, an NA gene name survives in a sample vector but is dropped from the
+  # sorted gene universe, causing a 'subscript out of bounds' on assignment.
+  clean_named_vec <- function(x) {
+    nm   <- names(x)
+    keep <- !is.na(nm) & nzchar(nm)
+    x    <- x[keep]
+    if (anyDuplicated(names(x))) {
+      agg <- tapply(x, names(x), sum)
+      x   <- setNames(as.numeric(agg), names(agg))
+    }
+    x
+  }
+  counts_list <- lapply(counts_list, clean_named_vec)
+  tpm_list    <- lapply(tpm_list,    clean_named_vec)
+
+  all_genes <- sort(unique(Reduce(union, lapply(counts_list, names))))
 
   assemble_matrix <- function(vec_list, gene_universe, fill = 0) {
     m <- matrix(fill,
@@ -110,8 +136,10 @@ tximport_merge_pipe <- function(bulk_folder,
                 ncol = length(vec_list),
                 dimnames = list(gene_universe, names(vec_list)))
     for (sid in names(vec_list)) {
-      v <- vec_list[[sid]]
-      m[names(v), sid] <- v
+      v    <- vec_list[[sid]]
+      nm   <- names(v)
+      keep <- !is.na(nm) & nm %in% gene_universe
+      if (any(keep)) m[nm[keep], sid] <- v[keep]
     }
     m
   }
@@ -123,6 +151,7 @@ tximport_merge_pipe <- function(bulk_folder,
   unfiltered_dir <- file.path(output_dir, "00_Unfiltered")
   if (!dir.exists(unfiltered_dir)) dir.create(unfiltered_dir, recursive = TRUE)
 
+  report(0.74, "VST on unfiltered matrix + writing")
   RNAseq_unfilt_vst <- normVST_bulk(round(RNAseq_counts))
 
   write_csv_mkdir(RNAseq_counts,     file.path(unfiltered_dir, "RNAseq_counts.csv"))
@@ -194,6 +223,7 @@ tximport_merge_pipe <- function(bulk_folder,
   }
 
   RNAseq_filt_TPM <- RNAseq_depth_TPM[rownames(RNAseq_filt_counts), , drop = FALSE]
+  report(0.9, "VST on filtered matrix + writing")
   RNAseq_filt_vst <- normVST_bulk(round(RNAseq_filt_counts))
 
   ## 7) Save the filtered triple

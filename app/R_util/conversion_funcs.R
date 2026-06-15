@@ -14,7 +14,17 @@ normVST_bulk <- function(rnaseq) {
                             colData = data.frame(cond=rnorm(ncol(rnaseq))>0),
                             design = ~ cond)
 
-    dds <- vst(dds)
+    # Default "ratio" size factors need at least one gene that is non-zero in
+    # every sample. On sparse / unfiltered / union-merged matrices that may not
+    # hold ("every gene contains at least one zero"), so fall back to the
+    # zero-tolerant "poscounts" estimator. Dense matrices keep the default
+    # behaviour (identical results); only the previously-failing case changes.
+    dds <- tryCatch(
+        estimateSizeFactors(dds),
+        error = function(e) estimateSizeFactors(dds, type = "poscounts")
+    )
+
+    dds <- vst(dds, blind = TRUE)
     norm_matrix <- assay(dds)
     return(norm_matrix)
 }

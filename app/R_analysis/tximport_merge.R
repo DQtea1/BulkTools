@@ -147,6 +147,22 @@ tximport_merge_pipe <- function(bulk_folder,
   RNAseq_counts <- assemble_matrix(counts_list, all_genes, fill = 0)
   RNAseq_TPM    <- assemble_matrix(tpm_list,    all_genes, fill = 0)
 
+  ## 2b) Drop samples that imported as all-zero. These are almost always a
+  ##     failed/empty quant file or a wrong gene-id column (so every gene name
+  ##     was dropped as NA), and they make VST size-factor estimation return NA.
+  zero_samples         <- colSums(RNAseq_counts) == 0
+  dropped_zero_samples <- colnames(RNAseq_counts)[zero_samples]
+  if (any(zero_samples)) {
+    RNAseq_counts <- RNAseq_counts[, !zero_samples, drop = FALSE]
+    RNAseq_TPM    <- RNAseq_TPM[,    !zero_samples, drop = FALSE]
+  }
+  if (ncol(RNAseq_counts) < 2) {
+    stop(sprintf(
+      "After dropping all-zero samples, %d sample(s) remain (need >= 2 for VST). All-zero samples: %s",
+      ncol(RNAseq_counts), paste(dropped_zero_samples, collapse = ", ")
+    ))
+  }
+
   ## 3) Save the unfiltered triple
   unfiltered_dir <- file.path(output_dir, "00_Unfiltered")
   if (!dir.exists(unfiltered_dir)) dir.create(unfiltered_dir, recursive = TRUE)
@@ -248,9 +264,18 @@ tximport_merge_pipe <- function(bulk_folder,
             length(dropped_patients) - 20)
   }
 
+  zero_sample_line <- if (length(dropped_zero_samples) == 0) {
+    "All-zero samples dropped  : none"
+  } else {
+    sprintf("All-zero samples dropped  : %d (%s)",
+            length(dropped_zero_samples),
+            paste(dropped_zero_samples, collapse = ", "))
+  }
+
   summary_text <- paste(
     sprintf("Input files matching '%s' : %d", file_strip, length(bulk_files)),
-    sprintf("Unfiltered matrix          : %d genes x %d samples",
+    zero_sample_line,
+    sprintf("Working matrix             : %d genes x %d samples",
             nrow(RNAseq_counts), ncol(RNAseq_counts)),
     "",
     sprintf("Sequencing depth filter   (>= %s reads): kept %d / %d samples",

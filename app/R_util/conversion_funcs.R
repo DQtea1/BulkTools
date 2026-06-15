@@ -10,6 +10,21 @@ library(dplyr)
 
 normVST_bulk <- function(rnaseq) {
     library(DESeq2)
+    rnaseq <- as.matrix(rnaseq)
+
+    # All-zero genes give a NaN geometric mean and add no information; drop them.
+    rnaseq <- rnaseq[rowSums(rnaseq) > 0, , drop = FALSE]
+
+    # An all-zero sample produces an NA size factor and cannot be transformed;
+    # surface it clearly instead of failing deep inside DESeq2's sizeFactors<-.
+    zero_samples <- colSums(rnaseq) == 0
+    if (any(zero_samples)) {
+        stop(sprintf(
+            "normVST_bulk: %d sample(s) have zero counts across all genes and cannot be VST-normalized: %s",
+            sum(zero_samples), paste(colnames(rnaseq)[zero_samples], collapse = ", ")
+        ))
+    }
+
     dds <- DESeqDataSetFromMatrix(countData = rnaseq,
                             colData = data.frame(cond=rnorm(ncol(rnaseq))>0),
                             design = ~ cond)

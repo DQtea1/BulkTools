@@ -368,8 +368,7 @@ mod_outrider_server <- function(id, roots = c(home = "~")) {
         output_dir_path(), input$iterations
       )
 
-      withProgress(message = "Running OUTRIDER...", value = 0, {
-        incProgress(0.1)
+      withProgress(message = "Running OUTRIDER...", value = 0.05, {
         res <- OUTRIDER_pipe(
           rnafilt_counts     = bulk_df(),
           clinic_annot       = clinic_df(),
@@ -379,9 +378,12 @@ mod_outrider_server <- function(id, roots = c(home = "~")) {
           volcano_samples    = or_NULL(input$volcano_samples),
           plot_genes         = or_NULL(input$plot_genes),
           label_column       = or_NULL(input$label_col),
-          iterations         = input$iterations
+          iterations         = input$iterations,
+          progress_cb        = function(frac, detail) {
+            setProgress(value = frac, detail = detail)
+          }
         )
-        incProgress(1)
+        setProgress(value = 1, detail = "done")
         res
       })
     })

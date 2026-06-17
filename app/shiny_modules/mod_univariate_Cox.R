@@ -280,8 +280,7 @@ mod_univariate_cox_server <- function(id, roots = c(home = "~")) {
         output_dir_path()
       )
 
-      withProgress(message = "Running univariate Cox...", value = 0, {
-        incProgress(0.2)
+      withProgress(message = "Running univariate Cox...", value = 0.05, {
         res <- univariate_cox_pipe(
           rnafilt_counts        = bulk_df(),
           clinic_annot          = clinic_df(),
@@ -295,9 +294,12 @@ mod_univariate_cox_server <- function(id, roots = c(home = "~")) {
           top_n_label           = input$top_n_label,
           label_filter_pattern  = input$label_filter_pattern,
           pathways_to_use       = input$GSEA_geneset,
-          gsea_min_size         = input$min_size
+          gsea_min_size         = input$min_size,
+          progress_cb           = function(frac, detail) {
+            setProgress(value = frac, detail = detail)
+          }
         )
-        incProgress(1)
+        setProgress(value = 1, detail = "done")
         res
       })
     })

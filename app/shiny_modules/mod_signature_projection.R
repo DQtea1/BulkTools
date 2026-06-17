@@ -65,7 +65,18 @@ mod_signature_proj_ui <- function(id) {
               choices = character(0),
               multiple = FALSE,
               options = list(placeholder = "Type a signature name (no spaces)…")
-            )
+            ),
+            div(
+              class = "d-flex justify-content-between align-items-center mb-2 mt-2",
+              tags$span("Combine with other signatures / genes"),
+              actionButton(
+                ns("add_component"),
+                label = NULL,
+                icon = icon("plus"),
+                class = "btn btn-sm btn-outline-primary"
+              )
+            ),
+            uiOutput(ns("extra_components_ui"))
           ),
           accordion_panel(
             "Parameters *",
@@ -338,14 +349,119 @@ mod_signature_proj_server <- function(id, roots = c(home = "~")) {
       signatures_json[[input$therapy]][[input$signatures]]
     })
 
+    ## ---- Extra signature / gene components (combine with +, -, *, /) ----
+    `%||%` <- function(a, b) if (is.null(a) || length(a) == 0) b else a
+
+    extra_comp_state <- reactiveValues(ids = integer(), next_id = 0)
+
+    comp_gene_choices <- function() {
+      genes <- if (isTruthy(input$bulk_file)) rownames(bulk_df()) else character(0)
+      c(stats::setNames("", ""), stats::setNames(genes, genes))
+    }
+
+    output$extra_components_ui <- renderUI({
+      if (length(extra_comp_state$ids) == 0) {
+        return(tags$p(class = "text-muted mb-0", "No extra component."))
+      }
+      tagList(lapply(extra_comp_state$ids, function(cid) {
+        op_id        <- paste0("comp_op_", cid)
+        type_id      <- paste0("comp_type_", cid)
+        therapy_id   <- paste0("comp_therapy_", cid)
+        signature_id <- paste0("comp_signature_", cid)
+        gene_id      <- paste0("comp_gene_", cid)
+        remove_id    <- paste0("remove_component_", cid)
+
+        div(
+          class = "border rounded p-3 mb-2",
+          selectInput(ns(op_id), "Operator :",
+                      choices = c("add (+)" = "+", "subtract (-)" = "-",
+                                  "multiply (*)" = "*", "divide (/)" = "/"),
+                      selected = isolate(input[[op_id]]) %||% "-",
+                      multiple = FALSE, selectize = FALSE, size = 4),
+          selectInput(ns(type_id), "Component type :",
+                      choices = c("Signature", "Gene"),
+                      selected = isolate(input[[type_id]]) %||% "Signature",
+                      multiple = FALSE, selectize = FALSE, size = 2),
+          conditionalPanel(
+            condition = sprintf("input['%s'] == 'Signature'", ns(type_id)),
+            selectizeInput(ns(therapy_id), "Therapy :",
+                           choices = names(signatures_json),
+                           selected = isolate(input[[therapy_id]]),
+                           options = list(placeholder = "Therapy…")),
+            selectizeInput(ns(signature_id), "Signature :",
+                           choices = character(0),
+                           selected = isolate(input[[signature_id]]),
+                           options = list(placeholder = "Signature…"))
+          ),
+          conditionalPanel(
+            condition = sprintf("input['%s'] == 'Gene'", ns(type_id)),
+            selectizeInput(ns(gene_id), "Gene :",
+                           choices = comp_gene_choices(),
+                           selected = isolate(input[[gene_id]]),
+                           options = list(placeholder = "Type a gene symbol…"))
+          ),
+          div(class = "d-flex justify-content-end",
+              actionButton(ns(remove_id), label = NULL, icon = icon("trash"),
+                           class = "btn btn-sm btn-outline-danger"))
+        )
+      }))
+    })
+
+    observeEvent(input$add_component, {
+      cid <- extra_comp_state$next_id + 1
+      extra_comp_state$next_id <- cid
+      extra_comp_state$ids <- c(extra_comp_state$ids, cid)
+
+      local({
+        current_cid  <- cid
+        therapy_id   <- paste0("comp_therapy_", current_cid)
+        signature_id <- paste0("comp_signature_", current_cid)
+        remove_id    <- paste0("remove_component_", current_cid)
+
+        observeEvent(input[[therapy_id]], {
+          req(input[[therapy_id]])
+          sigs <- names(signatures_json[[input[[therapy_id]]]])
+          updateSelectizeInput(session, signature_id, choices = sigs,
+                               selected = isolate(input[[signature_id]]), server = TRUE)
+        }, ignoreInit = TRUE)
+
+        observeEvent(input[[remove_id]], {
+          extra_comp_state$ids <- setdiff(extra_comp_state$ids, current_cid)
+        }, ignoreInit = TRUE)
+      })
+    })
+
+    extra_components <- reactive({
+      if (length(extra_comp_state$ids) == 0) return(NULL)
+      comps <- list()
+      for (cid in extra_comp_state$ids) {
+        op   <- input[[paste0("comp_op_", cid)]]
+        type <- input[[paste0("comp_type_", cid)]]
+        if (is.null(op) || is.null(type)) next
+
+        if (identical(type, "Signature")) {
+          th  <- input[[paste0("comp_therapy_", cid)]]
+          sig <- input[[paste0("comp_signature_", cid)]]
+          if (is.null(th) || is.null(sig) || !nzchar(th) || !nzchar(sig)) next
+          gs <- signatures_json[[th]][[sig]]$geneset
+        } else {
+          g <- input[[paste0("comp_gene_", cid)]]
+          if (is.null(g) || !nzchar(g)) next
+          gs <- stats::setNames(1, g)
+        }
+        if (is.null(gs) || length(gs) == 0) next
+        comps[[length(comps) + 1]] <- list(op = op, geneset = gs)
+      }
+      if (length(comps) == 0) NULL else comps
+    })
+
     projection_res <- eventReactive(input$run_signature_proj, {
       req(
         clinic_df(), bulk_df(), sel_signature(),
         input$proj_sample$datapath, output_dir_path()
       )
 
-      withProgress(message = "Projecting signature score...", value = 0, {
-        incProgress(0.2)
+      withProgress(message = "Projecting signature score...", value = 0.05, {
         output_dir = file.path(path.expand(output_dir_path()), input$therapy, input$signatures)
         res <- signature_proj_pipe(
           rnafilt_counts         = bulk_df(),
@@ -357,7 +473,7 @@ mod_signature_proj_server <- function(id, roots = c(home = "~")) {
           sample_to_project_path = input$proj_sample$datapath[1],
           contrast               = input$contrast,
           resp_var               = input$responders,
-          non_resp_var           = input$non_responders, 
+          non_resp_var           = input$non_responders,
           survival_time_col      = input$survival_time_col,
           event_realization_col  = input$event_realization_col,
           group_quantile         = input$group_quantile,
@@ -365,9 +481,13 @@ mod_signature_proj_server <- function(id, roots = c(home = "~")) {
           clinic_filters         = clinic_filters(),
           filter_by_gene         = input$gene_filt_proj,
           keep_low_or_high       = input$low_or_high_proj,
-          quantile_thr           = input$quantile_proj
+          quantile_thr           = input$quantile_proj,
+          extra_components       = extra_components(),
+          progress_cb            = function(frac, detail) {
+            setProgress(value = frac, detail = detail)
+          }
         )
-        incProgress(1)
+        setProgress(value = 1, detail = "done")
         res
       })
     })

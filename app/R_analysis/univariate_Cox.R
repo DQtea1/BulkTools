@@ -16,12 +16,19 @@ univariate_cox_pipe <- function(rnafilt_counts,
                                 pathways_to_use = "REACTOME_pathways",
                                 gsea_min_size = 10,
                                 gsea_pval_thr = 0.01,
-                                gsea_top_n = 70) {
+                                gsea_top_n = 70,
+                                progress_cb = NULL) {
   library(survival)
   library(dplyr)
   library(ggplot2)
   library(ggrepel)
   library(fgsea)
+
+  # Optional progress reporter: progress_cb(frac, detail), frac in [0, 1].
+  report <- function(frac, detail) {
+    if (is.function(progress_cb)) progress_cb(frac, detail)
+  }
+  report(0.1, "preprocessing & aligning survival data")
 
   parsed_design <- paste(survival_time_col, event_realization_col, sep = "__")
 
@@ -109,6 +116,7 @@ univariate_cox_pipe <- function(rnafilt_counts,
     )
   }
 
+  report(0.3, sprintf("fitting univariate Cox over %d features", ncol(expr_mat_scaled)))
   res_list <- lapply(seq_len(ncol(expr_mat_scaled)), function(j) {
     cox_one_feature(expr_mat_scaled[, j])
   })
@@ -121,6 +129,8 @@ univariate_cox_pipe <- function(rnafilt_counts,
 
   if (!dir.exists(output_path)) dir.create(output_path, recursive = TRUE)
   write_csv_mkdir(res, file.path(output_path, "univariate_cox_table.csv"), row.names = FALSE)
+
+  report(0.6, "building volcano plot")
 
   ## VOLCANO PLOT ##
   df <- res %>%
@@ -172,6 +182,7 @@ univariate_cox_pipe <- function(rnafilt_counts,
   ggsave(file.path(output_path, "univariate_cox_volcano.png"), p, width = 12, height = 10, dpi = 300)
 
   ## GSEA on the Cox z-statistic ##
+  report(0.8, "running GSEA on Cox z-statistic")
   selected_pathways <- normalize_gene_set_collection(
     get(pathways_to_use),
     fallback_prefix = pathways_to_use

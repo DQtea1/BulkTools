@@ -278,8 +278,7 @@ mod_anchored_gsea_server <- function(id, roots = c(home = "~")) {
         input$GSEA_geneset, output_dir_path()
       )
 
-      withProgress(message = "Running anchored GSEA...", value = 0, {
-        incProgress(0.2)
+      withProgress(message = "Running anchored GSEA...", value = 0.05, {
         res <- anchored_GSEA_pipe(
           rnafilt_counts     = bulk_df(),
           clinic_annot       = clinic_df(),
@@ -291,9 +290,12 @@ mod_anchored_gsea_server <- function(id, roots = c(home = "~")) {
           clinic_filters     = clinic_filters(),
           filter_by_gene     = input$gene_filt,
           quantile_thr       = input$quantile,
-          keep_low_or_high   = input$low_or_high
+          keep_low_or_high   = input$low_or_high,
+          progress_cb        = function(frac, detail) {
+            setProgress(value = frac, detail = detail)
+          }
         )
-        incProgress(1)
+        setProgress(value = 1, detail = "done")
         res
       })
     })

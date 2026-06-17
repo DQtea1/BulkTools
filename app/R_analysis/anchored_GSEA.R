@@ -6,12 +6,18 @@ adjust_on_ESTIMATE =  "immune_score+stromal_score"  # = stromal_score, immune_sc
 
 anchored_GSEA_pipe <- function(rnafilt_counts, clinic_annot, output_dir, anchor_gene, pathways_to_use,
                         filter_by_gene, keep_low_or_high, quantile_thr = NULL, adjust_on_ESTIMATE = NULL,
-                        clinic_filters = NULL, min_size = 10)
+                        clinic_filters = NULL, min_size = 10, progress_cb = NULL)
     {
     library(data.table)
     library(fgsea)
     library(tidyestimate)
     library(limma)
+
+    # Optional progress reporter: progress_cb(frac, detail), frac in [0, 1].
+    report <- function(frac, detail) {
+        if (is.function(progress_cb)) progress_cb(frac, detail)
+    }
+    report(0.1, "preprocessing & clinic/gene filtering")
 
     adjustment_suffix = gsub("_score", "", adjust_on_ESTIMATE)
     selected_pathways = normalize_gene_set_collection(get(pathways_to_use), fallback_prefix = pathways_to_use)
@@ -39,6 +45,7 @@ anchored_GSEA_pipe <- function(rnafilt_counts, clinic_annot, output_dir, anchor_
 
     if (!is.null(adjust_on_ESTIMATE) && length(adjust_on_ESTIMATE) > 0) {
     # TPM: genes x samples, rownames = HGNC symbols, values = TPM (NOT log)
+        report(0.35, "computing ESTIMATE scores + limma adjustment")
         df <- data.frame(gene = rownames(rnafilt_counts), rnafilt_counts, check.names = FALSE)
         est <- estimate_score(df, is_affymetrix = FALSE)  # immune/stromal/estimate scores
 
@@ -59,18 +66,21 @@ anchored_GSEA_pipe <- function(rnafilt_counts, clinic_annot, output_dir, anchor_
         names(ranks) <- rownames(tt)
         ranks <- ranks[names(ranks) != anchor_gene]  # On enleve BSG prck forcement il est corrélé à lui même
 
+        report(0.7, "running GSEA (fgsea on adjusted ranks)")
         res_adjusted <- fgseaMultilevel(pathways=selected_pathways, stats=ranks, minSize=min_size, maxSize=10000)
         res_adjusted <- res_adjusted[order(abs(res_adjusted$padj), decreasing = FALSE), ]
         res_adjusted = flatten_list_cols(res_adjusted)
 
+        report(0.95, "writing results")
         write_csv_mkdir(res_adjusted, paste0(output_path, ".csv"))
-        
+
         return(res_adjusted)
 
     }else {
         # Genes are ranked by expression correlation with BSG 
         # NES < 0 : anticorrelated with BSG
         # NES > 0 : correlated with BSG
+        report(0.35, sprintf("ranking genes by correlation with %s", anchor_gene))
         E <- rnafilt_counts   # genes x samples, rownames = symbols
         anch_gene <- as.numeric(E[anchor_gene, ])
 
@@ -82,12 +92,14 @@ anchored_GSEA_pipe <- function(rnafilt_counts, clinic_annot, output_dir, anchor_
         stats <- sort(stats, decreasing = TRUE)
         stats <- stats[names(stats) != anchor_gene]  # On enleve BSG prck forcement il est corrélé à lui même
 
+        report(0.7, "running GSEA (fgsea on correlation ranks)")
         # selected_pathways: named list of character vectors (gene symbols)
         res_simple <- fgseaMultilevel(pathways = selected_pathways, stats = stats, minSize = min_size, maxSize = 500)
         res_simple <- res_simple[order(abs(res_simple$padj), decreasing = FALSE), ]
 
         res_simple = flatten_list_cols(res_simple)
 
+        report(0.95, "writing results")
         write_csv_mkdir(res_simple, paste0(output_path, ".csv"))
         return(res_simple)
 

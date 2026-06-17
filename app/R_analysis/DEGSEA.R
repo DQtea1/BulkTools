@@ -180,7 +180,8 @@ build_empty_group_error_message <- function(group_label, diagnostics) {
 
 DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filters, output_dir, pathways_to_use,
                         filter_by_gene = NULL, keep_low_or_high = NULL, quantile_thr = NULL, covariates = NULL,
-                        clinic_filters = NULL, control_gene_filter = NULL, test_gene_filter = NULL, min_size = 15)
+                        clinic_filters = NULL, control_gene_filter = NULL, test_gene_filter = NULL, min_size = 15,
+                        progress_cb = NULL)
     {
     library(DESeq2)
     library(dplyr)
@@ -189,7 +190,12 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filt
     library(tidyverse)
     library(jsonlite)
     library(fgsea)
-    incProgress(0.2)
+
+    # Optional progress reporter: progress_cb(frac, detail), frac in [0, 1].
+    report <- function(frac, detail) {
+        if (is.function(progress_cb)) progress_cb(frac, detail)
+    }
+    report(0.05, "preprocessing & validating inputs")
 
     condition_col = "DEGSEA_group"
     sample_ids = colnames(rnafilt_counts)
@@ -353,7 +359,7 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filt
         stop("At least one DESeq group became empty after applying covariate filtering.")
     }
 
-    incProgress(0.3)
+    report(0.25, "running DESeq2 (normalization + dispersion + GLM fit)")
 
     ## RUN DESeq ##
     DESeq_dds = doDGEv2(rnamat = round(rnafilt_noNA),
@@ -374,9 +380,9 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filt
     if (!dir.exists(output_DESeq)) dir.create(output_DESeq, recursive = TRUE)
     saveRDS(DESeq_dds, file = paste0(output_DESeq,"/DESeq_dds", ".rds"), compress = "xz")  # good compression
 
-    incProgress(0.7)
+    report(0.5, "building volcano plot & writing DE tables")
 
-    ## VOLCANO PLOT ## 
+    ## VOLCANO PLOT ##
     log2FC_threshold = 0
     pval_threshold = 0.05
 
@@ -419,7 +425,7 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filt
     ggsave(paste0(output_DESeq, "/", "volcano_plot.jpg"), plot = p, width = 8, height = 8, dpi = 300)
 
 
-    incProgress(0.75)
+    report(0.6, "running GSEA (fgsea on DESeq stat)")
 
     #### GSEA ####
 
@@ -457,7 +463,7 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filt
     })
     write_csv_mkdir(sorted_gsea_results[, c("pathway", "NES", "pval", "padj", "log2err", "ES", "size", "leadingEdge")], paste0(output_GSEA, "/es_", pathways_name, ".csv"), row.names=TRUE)
 
-    incProgress(0.95)
+    report(0.78, "running GESECA (VST + variance enrichment)")
 
     #### GESECA ####
 
@@ -489,6 +495,8 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filt
 
 
     #### ssGSEA ####
+
+    report(0.9, "running ssGSEA (per-sample enrichment)")
 
     output_ssGSEA = file.path(output_dir, "ssGSEA", filter_suffix, parsed_design, paste0("es_ssgsea_", pathways_name, ".csv"))
 

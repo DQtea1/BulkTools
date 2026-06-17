@@ -7,8 +7,36 @@ signature_proj_pipe = function(rnafilt_counts, clinic_annot,
                                 filter_by_gene, keep_low_or_high, quantile_thr,
                                 survival_time_col = "delpfs", event_realization_col = "PFS",
                                 sample_ID_col = "ID_Patient", group_quantile = "median",
-                                do_km_plot = TRUE){
+                                do_km_plot = TRUE, extra_components = NULL,
+                                progress_cb = NULL){
     library(reticulate)
+
+    # Optional progress reporter: progress_cb(frac, detail), frac in [0, 1].
+    report <- function(frac, detail) {
+        if (is.function(progress_cb)) progress_cb(frac, detail)
+    }
+    report(0.1, "preprocessing & clinic/gene filtering")
+
+    # Combine the base signature with optional extra signatures / single genes
+    # at the SCORE level: each component's per-sample score is computed, then
+    # added / subtracted / multiplied / divided into the running score.
+    compute_combined_score <- function(expr_mat, base_geneset, components = NULL) {
+        combined <- compute_signature_score(expr_mat, base_geneset, scale_by_sum_abs = TRUE)
+        if (!is.null(components) && length(components) > 0) {
+            for (comp in components) {
+                sc_i <- compute_signature_score(expr_mat, comp$geneset, scale_by_sum_abs = TRUE)
+                sc_i <- sc_i[rownames(combined), , drop = FALSE]
+                combined$score <- switch(comp$op,
+                    "+" = combined$score + sc_i$score,
+                    "-" = combined$score - sc_i$score,
+                    "*" = combined$score * sc_i$score,
+                    "/" = combined$score / sc_i$score,
+                    stop(sprintf("Unsupported combination operator '%s'.", comp$op))
+                )
+            }
+        }
+        combined
+    }
 
     use_python("/opt/conda/envs/BulkTools/bin/python", required = TRUE)
     source_python("py/py_plots.py")
@@ -31,16 +59,18 @@ signature_proj_pipe = function(rnafilt_counts, clinic_annot,
     clinic_annot   = filtered_data$clinic_annot
     output_DESeq   = filtered_data$output_path
 
-    prepared_data = prepare_projection(rnafilt_counts, 
+    report(0.3, "importing projected sample + VST normalization")
+    prepared_data = prepare_projection(rnafilt_counts,
                                        sample_to_project_path)
 
     merged_bulks_vst = prepared_data$merged_bulks_vst
     ID_ref_samples   = prepared_data$ID_ref_samples
     sample_name      = prepared_data$sample_name
 
-    reference_scores = compute_signature_score(merged_bulks_vst[, ID_ref_samples, drop = FALSE], signature_to_use, scale_by_sum_abs = TRUE)
+    report(0.45, "computing (combined) signature scores")
+    reference_scores = compute_combined_score(merged_bulks_vst[, ID_ref_samples, drop = FALSE], signature_to_use, extra_components)
 
-    sample_score = compute_signature_score(merged_bulks_vst[, sample_name, drop = FALSE], signature_to_use, scale_by_sum_abs = TRUE)
+    sample_score = compute_combined_score(merged_bulks_vst[, sample_name, drop = FALSE], signature_to_use, extra_components)
     
     # 1st panel : Quantile + sample projection + accuracy metrics in python :
     clean_ids = function(x) {
@@ -130,6 +160,7 @@ signature_proj_pipe = function(rnafilt_counts, clinic_annot,
     dir.create(model_eval_dir, recursive = TRUE, showWarnings = FALSE)
 
 
+    report(0.55, "nested cross-validation (this can take a while)")
     res_nested_cv = nested_cv_signature(
                                         df_scores                = reference_scores[rownames(reference_scores) %in% ID_ref_samples, ],                         # index = sample IDs
                                         sample_ID_responders     = responder_ids,
@@ -163,7 +194,8 @@ signature_proj_pipe = function(rnafilt_counts, clinic_annot,
     sample_proj_dir = file.path(output_dir, "projection")
     dir.create(sample_proj_dir, recursive = TRUE, showWarnings = FALSE)
     save_path = file.path(sample_proj_dir, paste0("proj_", paste(query_ids, collapse = "_"), ".png"))
-    
+
+    report(0.8, "building projection + confidence plot")
     proj_plot = plot_sample_signature_confidence(
                                                  query_scores       = unname(query_scores),
                                                  res_v2             = res_nested_cv,
@@ -207,6 +239,7 @@ signature_proj_pipe = function(rnafilt_counts, clinic_annot,
     }
 
     # 3rd panel Signature evaluation (ROC curve, boxplot, conf mat? ) in python :
+    report(0.9, "survival / ROC / boxplot")
     box_plot = my_Box_Wilcox(
                              df             = reference_scores[rownames(reference_scores) %in% ID_ref_samples, ],   # data.frame avec rownames = IDs
                              responders     = responder_ids,               # vecteur R

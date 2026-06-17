@@ -355,8 +355,7 @@ mod_signature_proj_server <- function(id, roots = c(home = "~")) {
     extra_comp_state <- reactiveValues(ids = integer(), next_id = 0)
 
     comp_gene_choices <- function() {
-      genes <- if (isTruthy(input$bulk_file)) rownames(bulk_df()) else character(0)
-      c(stats::setNames("", ""), stats::setNames(genes, genes))
+      if (isTruthy(input$bulk_file)) rownames(bulk_df()) else character(0)
     }
 
     output$extra_components_ui <- renderUI({
@@ -396,7 +395,7 @@ mod_signature_proj_server <- function(id, roots = c(home = "~")) {
           conditionalPanel(
             condition = sprintf("input['%s'] == 'Gene'", ns(type_id)),
             selectizeInput(ns(gene_id), "Gene :",
-                           choices = comp_gene_choices(),
+                           choices = character(0),
                            selected = isolate(input[[gene_id]]),
                            options = list(placeholder = "Type a gene symbol…"))
           ),
@@ -429,6 +428,24 @@ mod_signature_proj_server <- function(id, roots = c(home = "~")) {
           extra_comp_state$ids <- setdiff(extra_comp_state$ids, current_cid)
         }, ignoreInit = TRUE)
       })
+    })
+
+    # Fill the per-component gene selectize inputs server-side (the gene list is
+    # large, so client-side rendering is slow). Runs after each UI flush.
+    observe({
+      ids <- extra_comp_state$ids
+      genes <- comp_gene_choices()
+      session$onFlushed(function() {
+        for (cid in ids) {
+          gene_id <- paste0("comp_gene_", cid)
+          updateSelectizeInput(
+            session, gene_id,
+            choices  = genes,
+            selected = isolate(input[[gene_id]]) %||% "",
+            server   = TRUE
+          )
+        }
+      }, once = TRUE)
     })
 
     extra_components <- reactive({

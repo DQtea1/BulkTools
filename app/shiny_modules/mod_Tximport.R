@@ -65,6 +65,9 @@ mod_tximport_server <- function(id, roots = c(home = "~")) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
+    app_dir <- normalizePath(getwd())
+    tx2gene_fallback_gtf <- file.path(app_dir, "REF_DATA", "gencode.v36.annotation.gtf.gz")
+
     shinyFiles::shinyDirChoose(
       input,
       id = "bulk_folder",
@@ -115,6 +118,7 @@ mod_tximport_server <- function(id, roots = c(home = "~")) {
           min_n_samples          = input$min_n_samples,
           min_seq_depth          = input$min_seq_depth,
           remove_gene_classes    = or_NULL(input$remove_gene_classes),
+          tx2gene_fallback_gtf   = tx2gene_fallback_gtf,
           progress_cb            = function(frac, detail) {
             setProgress(value = frac, detail = detail)
           }

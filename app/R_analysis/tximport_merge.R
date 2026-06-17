@@ -3,6 +3,56 @@
 # -> drop low-depth samples, drop low-count genes, optionally drop gene classes
 # -> write unfiltered and filtered triples (counts / TPM / VST) to disk.
 
+# --- Fallback transcript -> gene mapping -----------------------------------
+# Some quant files ship without a usable gene-name column and with transcript
+# IDs like "ENST00000450305.2_1". For those we map transcripts to gene symbols
+# from an external GENCODE GTF, matching on the base ENST id (version and the
+# trailing "_N" suffix stripped).
+
+strip_tx_id <- function(x) {
+  # ENST00000450305.2_1 -> ENST00000450305 ; ENST00000450305.2 -> ENST00000450305
+  sub("\\.[0-9]+(_[0-9]+)?$", "", as.character(x))
+}
+
+load_tx2gene_from_gtf <- function(gtf_path) {
+  library(data.table)
+
+  # Keep only transcript lines and only the attribute column. Try a shell
+  # prefilter (fast); fall back to a pure-R read if no shell is available.
+  attr_dt <- tryCatch(
+    fread(cmd = sprintf("zcat -f %s | awk -F'\t' '$3==\"transcript\"'", shQuote(gtf_path)),
+          sep = "\t", header = FALSE, quote = "", select = 9,
+          col.names = "attr", showProgress = FALSE),
+    error = function(e) {
+      gtf_all <- fread(gtf_path, sep = "\t", header = FALSE, quote = "",
+                       fill = TRUE, showProgress = FALSE)
+      gtf_all[V3 == "transcript", .(attr = V9)]
+    }
+  )
+
+  if (nrow(attr_dt) == 0) {
+    stop(sprintf("No 'transcript' features parsed from GTF '%s'.", gtf_path))
+  }
+
+  has_gn  <- grepl('gene_name "', attr_dt$attr, fixed = TRUE)
+  attr_dt <- attr_dt[has_gn]
+
+  tx <- sub('.*transcript_id "([^"]+)".*', "\\1", attr_dt$attr)
+  gn <- sub('.*gene_name "([^"]+)".*',     "\\1", attr_dt$attr)
+
+  map <- data.table(tx_base = strip_tx_id(tx), gene_name = gn)
+  map[!duplicated(tx_base)]
+}
+
+build_fallback_tx2gene <- function(file_tx_ids, gtf_map) {
+  file_tx_ids <- as.character(file_tx_ids)
+  base <- strip_tx_id(file_tx_ids)
+  gene <- gtf_map$gene_name[match(base, gtf_map$tx_base)]
+  ok   <- !is.na(gene) & nzchar(gene)
+  data.frame(tx = file_tx_ids[ok], gene = gene[ok], stringsAsFactors = FALSE)
+}
+
+
 tximport_merge_pipe <- function(bulk_folder,
                                 output_dir,
                                 file_strip = "_quantif.tsv",
@@ -19,6 +69,7 @@ tximport_merge_pipe <- function(bulk_folder,
                                 min_n_samples = 0.33,
                                 min_seq_depth = 30000000,
                                 remove_gene_classes = NULL,
+                                tx2gene_fallback_gtf = NULL,
                                 progress_cb = NULL) {
   library(tximport)
   library(ggplot2)
@@ -85,6 +136,27 @@ tximport_merge_pipe <- function(bulk_folder,
   names(counts_list) <- names(bulk_files)
   names(tpm_list)    <- names(bulk_files)
 
+  # Fallback GTF map is loaded lazily: only built the first time a file with an
+  # unusable gene-name column is encountered.
+  gtf_map           <- NULL
+  gtf_loaded        <- FALSE
+  recovered_samples <- character(0)
+  get_gtf_map <- function() {
+    if (!gtf_loaded) {
+      if (is.null(tx2gene_fallback_gtf) || !nzchar(tx2gene_fallback_gtf) ||
+          !file.exists(tx2gene_fallback_gtf)) {
+        stop(sprintf(
+          "A quant file has an empty gene-name column, but the fallback GTF was not found: '%s'. Provide a valid GENCODE GTF to recover these samples, or remove them from the folder.",
+          if (is.null(tx2gene_fallback_gtf)) "NULL" else tx2gene_fallback_gtf
+        ))
+      }
+      report(0.1, "loading fallback GTF (transcript -> gene map)")
+      gtf_map    <<- load_tx2gene_from_gtf(tx2gene_fallback_gtf)
+      gtf_loaded <<- TRUE
+    }
+    gtf_map
+  }
+
   for (idx in seq_along(bulk_files)) {
     sid <- names(bulk_files)[idx]
     fp  <- bulk_files[[idx]]
@@ -94,18 +166,39 @@ tximport_merge_pipe <- function(bulk_folder,
     if (ncol(ex) < 2) {
       stop(sprintf("Quantification file '%s' has fewer than 2 columns; cannot build tx2gene.", fp))
     }
+
+    # Pick transcript-id / gene-name columns by name when present, else fall
+    # back to the first two columns (original convention).
+    tx_col   <- if (tx_txIdCol   %in% colnames(ex)) as.character(ex[[tx_txIdCol]])   else as.character(ex[[1]])
+    gene_col <- if (tx_geneIdCol %in% colnames(ex)) as.character(ex[[tx_geneIdCol]]) else as.character(ex[[2]])
+    gene_usable <- mean(!is.na(gene_col) & nzchar(trimws(gene_col))) > 0.5
+
+    if (gene_usable) {
+      tx2gene_i  <- data.frame(tx = tx_col, gene = gene_col, stringsAsFactors = FALSE)
+      ignoreTx_i <- tx_ignoreTxVersion
+    } else {
+      # No usable gene names in this file: map its transcript IDs to symbols
+      # via the GENCODE GTF, keyed on the base ENST id.
+      tx2gene_i  <- build_fallback_tx2gene(tx_col, get_gtf_map())
+      ignoreTx_i <- FALSE   # tx2gene already holds the file's exact tx IDs
+      recovered_samples <- c(recovered_samples, sid)
+      if (nrow(tx2gene_i) == 0) {
+        warning(sprintf("Sample '%s': empty gene-name column and no transcript mapped via the fallback GTF.", sid))
+      }
+    }
+
     res_i <- tximport(
       setNames(fp, sid),
       type                = tx_type,
       txIn                = tx_txIn,
       countsFromAbundance = tx_countsFromAbundance,
-      tx2gene             = ex[, 1:2],
+      tx2gene             = tx2gene_i,
       geneIdCol           = tx_geneIdCol,
       txIdCol             = tx_txIdCol,
       abundanceCol        = tx_abundanceCol,
       countsCol           = tx_countsCol,
       lengthCol           = tx_lengthCol,
-      ignoreTxVersion     = tx_ignoreTxVersion
+      ignoreTxVersion     = ignoreTx_i
     )
     counts_list[[sid]] <- setNames(as.numeric(res_i$counts[, 1]),    rownames(res_i$counts))
     tpm_list[[sid]]    <- setNames(as.numeric(res_i$abundance[, 1]), rownames(res_i$abundance))
@@ -147,10 +240,12 @@ tximport_merge_pipe <- function(bulk_folder,
   RNAseq_counts <- assemble_matrix(counts_list, all_genes, fill = 0)
   RNAseq_TPM    <- assemble_matrix(tpm_list,    all_genes, fill = 0)
 
-  ## 2b) Drop samples that imported as all-zero. These are almost always a
-  ##     failed/empty quant file or a wrong gene-id column (so every gene name
-  ##     was dropped as NA), and they make VST size-factor estimation return NA.
-  zero_samples         <- colSums(RNAseq_counts) == 0
+  ## 2b) Drop samples that are empty once counts are rounded to integers (which
+  ##     is what VST receives). These are failed / near-empty quant files, or a
+  ##     wrong gene-id column that dropped every gene name as NA; either way they
+  ##     make VST size-factor estimation return NA. Using the rounded sum keeps
+  ##     this detection consistent with normVST_bulk(round(...)) downstream.
+  zero_samples         <- colSums(round(RNAseq_counts)) == 0
   dropped_zero_samples <- colnames(RNAseq_counts)[zero_samples]
   if (any(zero_samples)) {
     RNAseq_counts <- RNAseq_counts[, !zero_samples, drop = FALSE]
@@ -272,8 +367,17 @@ tximport_merge_pipe <- function(bulk_folder,
             paste(dropped_zero_samples, collapse = ", "))
   }
 
+  recovered_line <- if (length(recovered_samples) == 0) {
+    "Recovered via GTF map     : none"
+  } else {
+    sprintf("Recovered via GTF map     : %d (%s)",
+            length(recovered_samples),
+            paste(recovered_samples, collapse = ", "))
+  }
+
   summary_text <- paste(
     sprintf("Input files matching '%s' : %d", file_strip, length(bulk_files)),
+    recovered_line,
     zero_sample_line,
     sprintf("Working matrix             : %d genes x %d samples",
             nrow(RNAseq_counts), ncol(RNAseq_counts)),

@@ -56,6 +56,71 @@
             "GZMB" : 1},
         "source" : "https://doi.org/10.1172/JCI91190", 
         "Author" : "Mark Ayers et al."},
+
+
+    "CAF/TGFB" : {
+        "geneset" : {
+            "FAP" : 1,
+            "COL1A1" : 1,
+            "COL1A2" : 1,
+            "COL3A1" : 1,
+            "COL5A1" : 1,
+            "COL5A2" : 1,
+            "POSTN" : 1,
+            "TGFBI" : 1,
+            "CTGF" : 1, 
+            "VCAN" : 1,
+            "THBS2" : 1,
+            "LOX" : 1,
+            "SERPINE1" : 1,
+            "PDPN" : 1},
+        "source" : "chat",
+        "Description" : "Signature proche de Mariathasan, corrélée avec TGFB, dépot matriciel, exclusion lymphocytaire, resistance anti-PD1."
+    },
+
+    "CAF_exclusion" : {
+        "geneset" : {
+                "FAP" : 1,
+                "ACTA2" : 1,
+                "COL1A1" : 1,
+                "COL1A2" : 1,
+                "COL3A1" : 1,
+                "POSTN" : 1,
+                "TGFBI" : 1,
+                "CTGF" : 1,
+                "THBS2" : 1,
+                "LOX" : 1},
+        "source" : "chat",
+        "Description" : ""
+    },
+
+    "myCAF" : {
+        "geneset" : {
+            "ACTA2" : 1,
+            "TAGLN" : 1,
+            "MYLK" : 1,
+            "CNN1" : 1,
+            "TPM2" : 1,
+            "CALD1" : 1, 
+            "DES" : 1},
+        "source" : "chat",
+        "Description" : "Signature fibroblastes contractiles très liée à TGFB"
+    },
+
+    "iCAF" : {
+        "geneset" : {
+            "CXCL12" : 1,
+            "IL6" : 1,
+            "CXCL14" : 1,
+            "CCL2" : 1,
+            "PDGFRA" : 1,
+            "HAS1" : 1},
+        "source" : "chat",
+        "Description" : "Signature iCAF, plus inflammatoire, moins ECM"
+    },
+
+
+
     "LB_ICA" : {
         "geneset" : {
             "JCHAIN" : 1,

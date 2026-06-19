@@ -387,10 +387,21 @@ mod_signature_proj_server <- function(id, roots = c(home = "~")) {
                            choices = names(signatures_json),
                            selected = isolate(input[[therapy_id]]),
                            options = list(placeholder = "Therapy…")),
-            selectizeInput(ns(signature_id), "Signature :",
-                           choices = character(0),
-                           selected = isolate(input[[signature_id]]),
-                           options = list(placeholder = "Signature…"))
+            local({
+              # Rebuild signature choices from this component's current therapy
+              # so a re-render (triggered by adding/removing another component)
+              # does not wipe the existing components' signature dropdowns.
+              sel_th <- isolate(input[[therapy_id]])
+              sig_choices <- if (!is.null(sel_th) && nzchar(sel_th)) {
+                names(signatures_json[[sel_th]])
+              } else {
+                character(0)
+              }
+              selectizeInput(ns(signature_id), "Signature :",
+                             choices = sig_choices,
+                             selected = isolate(input[[signature_id]]),
+                             options = list(placeholder = "Signature…"))
+            })
           ),
           conditionalPanel(
             condition = sprintf("input['%s'] == 'Gene'", ns(type_id)),

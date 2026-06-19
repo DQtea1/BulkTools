@@ -56,7 +56,18 @@
             "GZMB" : 1},
         "source" : "https://doi.org/10.1172/JCI91190", 
         "Author" : "Mark Ayers et al."},
-
+    
+    "TNFSF_NF-kB" : {
+        "geneset" : {
+            "CD40" : 1,
+            "LTB" : 1,
+            "TNFRSF13C" : 1,
+            "BIRC3" : 1,
+            "LTA" : 1
+        },
+        "source" : "homemade",
+        "Description" : "Leading edge of REACTOME_TNF_RECEPTOR_SUPERFAMILY_TNFSF_MEMBERS_MEDIATING_NON_CANONICAL_NF_KB between R/NR in IFNg-high predimel patients"
+    },
 
     "CAF/TGFB" : {
         "geneset" : {

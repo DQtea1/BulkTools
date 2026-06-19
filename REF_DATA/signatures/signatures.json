@@ -69,6 +69,37 @@
         "Description" : "Leading edge of REACTOME_TNF_RECEPTOR_SUPERFAMILY_TNFSF_MEMBERS_MEDIATING_NON_CANONICAL_NF_KB between R/NR in IFNg-high predimel patients"
     },
 
+    "Anchoring_Fibrils_LE" : {
+        "geneset" : {
+            "COL4A3" : 1,
+            "LAMC2" : 1,  
+            "COL4A4" : 1,   
+            "LAMA3" : 1,  
+            "LAMB3" : 1,  
+            "COL7A1" : 1,   
+            "COL4A5" : 1,   
+            "TLL2" : 1, 
+            "TLL1" : 1
+        },
+        "source" : "Homemade",
+        "Description" : "Leading edge of REACTOME_ANCHORING_FIBRIL_FORMATION between R/NR in IFNg-high predimel patients"
+    },
+
+    "signaling_activin_LE" : {
+        "geneset" : {
+            "FSTL3" : 1,
+               "ACVR1C" : 1,
+               "TGFBR3" : 1,
+               "MAPK1" : 1,
+               "ACVR1B" : 1,
+               "INHBB" : 1,
+               "INHBA" : 1
+        },
+        "source" : "Homemade",
+        "Description" : "Leading edge of REACTOME_SIGNALING_BY_ACTIVIN between R/NR in IFNg-high predimel patients"
+    },
+
+
     "CAF/TGFB" : {
         "geneset" : {
             "FAP" : 1,

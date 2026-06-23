@@ -31,7 +31,8 @@ mod_degsea_ui <- function(id) {
         ),
 
         accordion_panel(
-          "Filtering on gene",
+          "Advanced Parameters",
+          tags$strong("Subset samples on one gene's expression"),
           selectizeInput(
             ns("gene_filt"), "Filter on gene :",
             choices = stats::setNames("", ""),
@@ -47,11 +48,41 @@ mod_degsea_ui <- function(id) {
             ns("low_or_high"), "Keep low or high expression :",
             choices = c("low", "high"),
             multiple = FALSE, selectize = FALSE, size = 2
+          ),
+
+          tags$hr(),
+          tags$strong("Remove specific genes by name"),
+          selectizeInput(
+            ns("genes_to_remove"), "Genes to remove :",
+            choices = character(0),
+            selected = character(0),
+            multiple = TRUE,
+            options = list(placeholder = "Type gene symbols to drop…")
+          ),
+
+          tags$hr(),
+          tags$strong("Filter out low-count genes"),
+          checkboxInput(ns("enable_lowcount"), "Enable low-count gene filter", value = FALSE),
+          numericInput(
+            ns("min_gene_count"), "Minimum count :",
+            value = 15, min = 0, step = 1
+          ),
+          numericInput(
+            ns("min_gene_frac"), "in at least this fraction of samples :",
+            value = 0.33, min = 0, max = 1, step = 0.01
+          ),
+
+          tags$hr(),
+          tags$strong("Filter out low-depth samples"),
+          checkboxInput(ns("enable_depth"), "Enable sequencing-depth filter", value = FALSE),
+          numericInput(
+            ns("min_seq_depth"), "Minimum total read count per sample :",
+            value = 3000000, min = 0, step = 1000000
           )
         ),
 
         accordion_panel(
-          "Parameters *",
+          "Experimental Design *",
           selectInput(
             ns("DESeq_covar"), "DESeq covariates :",
             choices = character(0),
@@ -455,6 +486,7 @@ mod_degsea_server <- function(id, roots = c(home = "~")) {
       genes <- rownames(bulk_df())
       gene_choices <- gene_filter_choices(genes)
       updateSelectizeInput(session, "gene_filt", choices = gene_choices, selected = "", server = TRUE)
+      updateSelectizeInput(session, "genes_to_remove", choices = genes, selected = character(0), server = TRUE)
       reset_filter_state(control_gene_filter_state)
       reset_filter_state(test_gene_filter_state)
     })
@@ -505,6 +537,10 @@ mod_degsea_server <- function(id, roots = c(home = "~")) {
           filter_by_gene     = input$gene_filt,
           quantile_thr       = input$quantile,
           keep_low_or_high   = input$low_or_high,
+          genes_to_remove    = if (length(input$genes_to_remove) == 0) NULL else input$genes_to_remove,
+          min_gene_count     = if (isTRUE(input$enable_lowcount)) input$min_gene_count else NULL,
+          min_gene_frac      = if (isTRUE(input$enable_lowcount)) input$min_gene_frac else NULL,
+          min_seq_depth      = if (isTRUE(input$enable_depth)) input$min_seq_depth else NULL,
           progress_cb        = function(frac, detail) {
             setProgress(value = frac, detail = detail)
           }

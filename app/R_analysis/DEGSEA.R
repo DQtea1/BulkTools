@@ -181,6 +181,7 @@ build_empty_group_error_message <- function(group_label, diagnostics) {
 DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filters, output_dir, pathways_to_use,
                         filter_by_gene = NULL, keep_low_or_high = NULL, quantile_thr = NULL, covariates = NULL,
                         clinic_filters = NULL, control_gene_filter = NULL, test_gene_filter = NULL, min_size = 15,
+                        genes_to_remove = NULL, min_gene_count = NULL, min_gene_frac = NULL, min_seq_depth = NULL,
                         progress_cb = NULL)
     {
     library(DESeq2)
@@ -208,6 +209,40 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filt
 
     if (any(is.na(colnames(rnafilt_counts)) | !nzchar(colnames(rnafilt_counts)))) {
         stop("rnafilt_counts contains missing or empty sample IDs in its column names.")
+    }
+
+    ## Advanced preprocessing filters (all opt-in / disabled by default) ##
+    rnafilt_counts = as.matrix(rnafilt_counts)
+
+    # 1) Remove specific genes by name
+    if (!is.null(genes_to_remove) && length(genes_to_remove) > 0) {
+        genes_to_remove = intersect(genes_to_remove, rownames(rnafilt_counts))
+        if (length(genes_to_remove) > 0) {
+            rnafilt_counts = rnafilt_counts[!rownames(rnafilt_counts) %in% genes_to_remove, , drop = FALSE]
+        }
+    }
+
+    # 2) Low-count gene filter: keep genes reaching min_gene_count in >= frac of samples
+    if (!is.null(min_gene_count) && min_gene_count > 0) {
+        frac = if (is.null(min_gene_frac)) 0 else min_gene_frac
+        n_required = ncol(rnafilt_counts) * frac
+        keep_genes = rowSums(rnafilt_counts >= min_gene_count) >= n_required
+        rnafilt_counts = rnafilt_counts[keep_genes, , drop = FALSE]
+        if (nrow(rnafilt_counts) == 0) {
+            stop("Low-count gene filter removed all genes; loosen the count / fraction threshold.")
+        }
+    }
+
+    # 3) Sequencing-depth sample filter: drop samples below min total read count
+    if (!is.null(min_seq_depth) && min_seq_depth > 0) {
+        keep_samples = colSums(rnafilt_counts) >= min_seq_depth
+        if (sum(keep_samples) < 2) {
+            stop(sprintf(
+                "Sequencing-depth filter (>= %s reads) left %d sample(s); need at least 2.",
+                format(min_seq_depth, big.mark = ",", scientific = FALSE), sum(keep_samples)
+            ))
+        }
+        rnafilt_counts = rnafilt_counts[, keep_samples, drop = FALSE]
     }
 
     control_filters = normalize_clinic_filters(control_filters)

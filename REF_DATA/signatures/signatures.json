@@ -69,6 +69,31 @@
         "Description" : "Leading edge of REACTOME_TNF_RECEPTOR_SUPERFAMILY_TNFSF_MEMBERS_MEDIATING_NON_CANONICAL_NF_KB between R/NR in IFNg-high predimel patients"
     },
 
+    "antigen_activates_BCR_LE" : {
+        "geneset" : 
+           {"BLK" : 1,
+           "CD19" : 1,
+           "ITPR1" : 1,
+           "CD79B" : 1,
+           "STIM1" : 1,
+           "PIK3R1" : 1,
+           "CD79A" : 1,
+           "PLCG2" : 1,
+           "ORAI2" : 1,
+           "ITPR3" : 1,
+           "BLNK" : 1,
+           "NCK1" : 1,
+           "GRB2" : 1,
+           "CD22" : 1,
+           "SYK" : 1,
+           "DAPP1" : 1,
+           "VAV1" : 1,
+           "ORAI1" : 1
+        },
+        "source" : "Homemade",
+        "Description" : "Leading edge of REACTOME_ANTIGEN_ACTIVATES_B_CELL_RECEPTOR_BCR_LEADING_TO_GENERATION_OF_SECOND_MESSENGERS between R/NR in IFNg-high predimel patients"
+    },
+
     "Anchoring_Fibrils_LE" : {
         "geneset" : {
             "COL4A3" : 1,
@@ -98,7 +123,6 @@
         "source" : "Homemade",
         "Description" : "Leading edge of REACTOME_SIGNALING_BY_ACTIVIN between R/NR in IFNg-high predimel patients"
     },
-
 
     "CAF/TGFB" : {
         "geneset" : {
@@ -174,6 +198,7 @@
             },
         "source" : "Top weight genes LB component ICA.", 
         "Author" : "Quentin."},
+
     "LB_ICA_weighted" : {
         "geneset" : {
             "IGHG1" : 5.77, 
@@ -216,6 +241,7 @@
         },
         "source" : "Top weight genes LB component ICA.", 
         "Author" : "Quentin."},
+
     "medium_CTA_ICA" : {
         "geneset" : {
             "XAGE1A" : 1, 
@@ -248,35 +274,43 @@
         "source" : "Top weight genes and most correlated with response on CTA component ICA.", 
         "Author" : "Quentin."}
 },
-"Other" : {
-    "BSG_stuff" : {
+
+"Anti-PD1-PREDIMEL" : {
+    "SIGNALING_BY_HIPPO_LE" : {
         "geneset" : {
-            "BSG" : -1,
-            "DDR1" : -1,
-            "FERMT3" : 1
-            },
-        "source" : "Samia and co",
-        "Author" : "Samia and coco"
+            "AMOTL2" : 1,
+            "YAP1" : 1,
+            "WWC1" : 1, 
+            "TJP1" : 1, 
+            "MOB1A" : 1, 
+            "SAV1" : 1, 
+            "TJP2" : 1, 
+            "AMOT" : 1, 
+            "DVL2" : 1, 
+            "YWHAE" : 1, 
+            "STK4" : 1, 
+            "LATS1" : 1
         },
-    "BSG_stuff2" : {
-        "geneset" : {
-            "BSG" : 1,
-            "DDR1" : 1,
-            "FERMT3" : 1
-            },
-        "source" : "Samia and co",
-        "Author" : "Samia and coco"
-        }
-    },
-"signatures_anti-PD1" : {
-    "chromatin_CTA_ITG" : {
-        "geneset" : {
-            "chromatin_modif" : -0.510978,
-            "CTA_long" : -0.715641,
-            "integrin_cell_surface_interact_LE" : 0.406791
-             },
-        "source" : "MonoV2, best combination of features LogReg model.",
+        "source" : "Leading edge of REACTOME_SIGNATLING_BY_HIPPO between R and NR patients treated with anti-pd1 mono and with IFNg-high",
         "Author" : "Quentin."
-        }
+        },
+    "EGR2_SOX10_MEDIATED_INIT_OF_SCHWANN_MYELINATION" : {
+        "geneset" : {
+            "YAP1" : 1,
+            "ADGRV1" : 1,
+            "TEAD1" : 1,
+            "PMP22" : 1,
+            "POU3F1" : 1,
+            "POU3F2" : 1,
+            "UTRN" : 1,
+            "SCD5" : 1,
+            "DAG1" : 1,
+            "PRX" : 1,
+            "SREBF2" : 1
+       },
+       "source" : "Leading edge of REACTOME_EGR2_AND_SOX10_MEDIATED_INITIATION_OF_SCHWANN_CELL_MYELINATION between R and NR patients treated with anti-pd1 mono and with IFNg-high",
+       "Author" : "Quentin."
+    }
+
     }
 }

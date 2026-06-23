@@ -313,34 +313,92 @@
     },
     "TAP/TAZ_activation_long" : {
         "geneset" : {
-            "YAP1" : ,
-            "WWTR1" : ,      
-            "TAZ" : ,
-            "TEAD1" : ,
-            "TEAD4" : ,
-            "CTGF" : ,
-            "CYR61" : ,
-            "ANKRD1" : ,
-            "AMOTL2" : ,
-            "AJUBA" : ,
-            "FSTL1" : 
+            "YAP1" : 1,
+            "WWTR1" : 1,      
+            "TAZ" : 1,
+            "TEAD1" : 1,
+            "TEAD4" : 1,
+            "CTGF" : 1,
+            "CYR61" : 1,
+            "ANKRD1" : 1,
+            "AMOTL2" : 1,
+            "AJUBA" : 1,
+            "FSTL1" : 1
         },
         "source" : "Mesure l'activation du programme transcriptionnel Hippo/YAP-TAZ, associé à la plasticité tumorale, l'invasion et la résistance aux thérapies.",
         "Author" : "Chatgpt",
         "Remark" : "In Predimel, WWTR1 and TAZ are both present in the bulkrnaseq despite being the same protein ?"
     },
     "TAP/TAZ_activation_short" : {
-        "geneset" :{
+        "geneset" : {
             "YAP1" : 1,
             "WWTR1" : 1,
             "CTGF" : 1,
             "CYR61" : 1,
             "ANKRD1" : 1
         },
-        "source" : "Mesure l'activation du programme transcriptionnel Hippo/YAP-TAZ, associé à la plasticité tumorale, l'invasion et la résistance aux thérapies.",
+        "source" : "Description : Mesure l'activation du programme transcriptionnel Hippo/YAP-TAZ, associé à la plasticité tumorale, l'invasion et la résistance aux thérapies.",
         "Author" : "Chatgpt",
         "Remark" : "In Predimel, WWTR1 and TAZ are both present in the bulkrnaseq despite being the same protein ?"
     },
 
+    "Neural_Crest / Dediff_melanoma_long" : {
+        "geneset" : {
+            "AXL" : 1,
+            "WNT5A" : 1,
+            "LOXL2" : 1,
+            "ITGA5" : 1,
+            "PDGFRB" : 1,
+            "SERPINE1" : 1,
+            "JUN" : 1,
+            "FOSL1" : 1,
+            "TGFBI" : 1,
+            "ZEB1" : 1
+        },
+        "source" : "Description : reflète un retour vers un état de crête neurale immature et de plasticité cellulaire, souvent associé à la résistance à l'immunothérapie.",
+        "Author" : "Chatgpt"
+    },
+    
+    "Neural_Crest / Dediff_melanoma_short" : {
+        "geneset" : {
+            "NGFR" : 1,
+            "SOX9" : 1,
+            "POU3F2" : 1,
+            "RXRG" : 1,
+            "GFRA1" : 1    
+        },
+        "source" : "Description : reflète un retour vers un état de crête neurale immature et de plasticité cellulaire, souvent associé à la résistance à l'immunothérapie.",
+        "Author" : "Chatgpt"
+    },
+
+    "AXL-high / MITF-low _ long" : {
+        "geneset" : {
+            "AXL" : 1,
+            "WNT5A" : 1,
+            "LOXL2" : 1,
+            "ITGA5" : 1,
+            "PDGFRB" : 1,
+            "SERPINE1" : 1,
+            "JUN" : 1,
+            "FOSL1" : 1,
+            "TGFBI" : 1,
+            "ZEB1" : 1
+        },
+        "source" : "Description : signature classique opposant un état prolifératif différencié (MITF) à un état invasif et résistant (AXL).",
+        "Author" : "Chagpt"
+    },
+
+    "AXL-high / MITF-low _ short" : {
+        "geneset" : {
+            "MITF" : 1,
+            "MLANA" : 1,
+            "PMEL" : 1,
+            "TYR" : 1,
+            "DCT" : 1
+    },
+        "source" : "Description : signature classique opposant un état prolifératif différencié (MITF) à un état invasif et résistant (AXL).",
+        "Author" : "Chagpt"
     }
 }
+}
+

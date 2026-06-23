@@ -1,7 +1,23 @@
-### This file contains diverse functions useful 
+### This file contains diverse functions useful
+# n_parallel_cores()
 # doDGE()  (DESeq2)
 # gsea_multi()
 # cox_on_sig_genes()  (cox model KM plot)
+
+
+# Single source of truth for the parallel core budget across all pipes.
+# Honors SHINY_N_CORES (set by the launchers to ~3/4 of the host cores when
+# running in Docker); otherwise falls back to 3/4 of detectCores(). Always >= 1.
+# Using one helper everywhere avoids nested oversubscription (cores^2 processes).
+n_parallel_cores <- function() {
+  env <- suppressWarnings(as.integer(Sys.getenv("SHINY_N_CORES", "")))
+  if (length(env) == 1 && !is.na(env) && env >= 1) {
+    return(env)
+  }
+  total <- tryCatch(parallel::detectCores(), error = function(e) 1L)
+  if (is.na(total) || total < 1) total <- 1L
+  max(1L, as.integer(floor(total * 0.75)))
+}
 
 
 doDGEv2 <- function(rnamat,
@@ -93,7 +109,8 @@ doDGE <- function(rnamat, annot, design){
 gsea_multi <- function(vec_gene, pathw_to_use, min_size = 1) {
   library(fgsea)
 
-  res <- fgseaMultilevel(pathw_to_use, vec_gene, minSize = min_size, BPPARAM = BiocParallel::MulticoreParam(6))#, scoreType = "pos")
+  res <- fgseaMultilevel(pathw_to_use, vec_gene, minSize = min_size,
+                         BPPARAM = BiocParallel::MulticoreParam(n_parallel_cores()))#, scoreType = "pos")
   lE_list = res$leadingEdge
   lE_vector = sapply(lE_list, paste, collapse=", ")
   res$leadingEdge = lE_vector

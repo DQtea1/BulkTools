@@ -310,7 +310,37 @@
        },
        "source" : "Leading edge of REACTOME_EGR2_AND_SOX10_MEDIATED_INITIATION_OF_SCHWANN_CELL_MYELINATION between R and NR patients treated with anti-pd1 mono and with IFNg-high",
        "Author" : "Quentin."
-    }
+    },
+    "TAP/TAZ_activation_long" : {
+        "geneset" : {
+            "YAP1" : ,
+            "WWTR1" : ,      
+            "TAZ" : ,
+            "TEAD1" : ,
+            "TEAD4" : ,
+            "CTGF" : ,
+            "CYR61" : ,
+            "ANKRD1" : ,
+            "AMOTL2" : ,
+            "AJUBA" : ,
+            "FSTL1" : 
+        },
+        "source" : "Mesure l'activation du programme transcriptionnel Hippo/YAP-TAZ, associé à la plasticité tumorale, l'invasion et la résistance aux thérapies.",
+        "Author" : "Chatgpt",
+        "Remark" : "In Predimel, WWTR1 and TAZ are both present in the bulkrnaseq despite being the same protein ?"
+    },
+    "TAP/TAZ_activation_short" : {
+        "geneset" :{
+            "YAP1" : 1,
+            "WWTR1" : 1,
+            "CTGF" : 1,
+            "CYR61" : 1,
+            "ANKRD1" : 1
+        },
+        "source" : "Mesure l'activation du programme transcriptionnel Hippo/YAP-TAZ, associé à la plasticité tumorale, l'invasion et la résistance aux thérapies.",
+        "Author" : "Chatgpt",
+        "Remark" : "In Predimel, WWTR1 and TAZ are both present in the bulkrnaseq despite being the same protein ?"
+    },
 
     }
 }

@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import roc_curve
 from matplotlib.patches import Rectangle
 from pathlib import Path
+from joblib import Parallel, delayed
 
 import py.py_models as pyM
 
@@ -128,7 +129,6 @@ def plot_sample_signature_confidence(
         return float(thresholds[idx])
 
     def _bootstrap_thresholds(y_ref, s_ref, n_boot=1000, seed=123, stratified=True, criterion="youden"):
-        rng = np.random.default_rng(seed)
         y_ref = np.asarray(y_ref, dtype=int)
         s_ref = np.asarray(s_ref, dtype=float)
 
@@ -136,25 +136,36 @@ def plot_sample_signature_confidence(
         idx_pos = np.where(y_ref == 1)[0]
         idx_neg = np.where(y_ref == 0)[0]
 
-        out = np.full(n_boot, np.nan, dtype=float)
-
-        for b in range(n_boot):
+        def _one(child_seed):
+            rng_b = np.random.default_rng(child_seed)
             if stratified and len(idx_pos) > 0 and len(idx_neg) > 0:
-                boot_pos = rng.choice(idx_pos, size=len(idx_pos), replace=True)
-                boot_neg = rng.choice(idx_neg, size=len(idx_neg), replace=True)
+                boot_pos = rng_b.choice(idx_pos, size=len(idx_pos), replace=True)
+                boot_neg = rng_b.choice(idx_neg, size=len(idx_neg), replace=True)
                 idx = np.concatenate([boot_pos, boot_neg])
-                rng.shuffle(idx)
+                rng_b.shuffle(idx)
             else:
-                idx = rng.choice(idx_all, size=len(idx_all), replace=True)
-
+                idx = rng_b.choice(idx_all, size=len(idx_all), replace=True)
             yb = y_ref[idx]
             sb = s_ref[idx]
             if len(np.unique(yb)) < 2:
-                continue
+                return np.nan
             try:
-                out[b] = _pick_threshold(yb, sb, criterion=criterion)
+                return _pick_threshold(yb, sb, criterion=criterion)
             except Exception:
-                pass
+                return np.nan
+
+        child_seeds = np.random.SeedSequence(seed).spawn(n_boot)
+        nj = pyM._n_jobs()
+        if nj == 1:
+            out = np.array([_one(s) for s in child_seeds], dtype=float)
+        else:
+            try:
+                out = np.array(
+                    Parallel(n_jobs=nj, prefer="threads")(delayed(_one)(s) for s in child_seeds),
+                    dtype=float,
+                )
+            except Exception:
+                out = np.array([_one(s) for s in child_seeds], dtype=float)
         return out[np.isfinite(out)]
 
     def _find_ci_cols(columns, prefix):

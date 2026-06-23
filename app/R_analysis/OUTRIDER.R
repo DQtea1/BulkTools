@@ -21,6 +21,13 @@ OUTRIDER_pipe <- function(rnafilt_counts,
   report <- function(frac, detail) {
     if (is.function(progress_cb)) progress_cb(frac, detail)
   }
+
+  # Shared core budget for OUTRIDER's parallel steps (autoencoder control, NB
+  # fit, p-values). Registering the default backend lets the OUTRIDER functions
+  # pick it up via bpparam(); we also pass it explicitly where it matters most.
+  bpparam <- BiocParallel::MulticoreParam(workers = n_parallel_cores())
+  BiocParallel::register(bpparam)
+
   report(0.1, "preprocessing & matching samples")
 
   rnafilt_counts <- round(as.matrix(rnafilt_counts))
@@ -72,7 +79,7 @@ OUTRIDER_pipe <- function(rnafilt_counts,
   report(0.3, "controlling for confounders (autoencoder fit)")
   ods_filt <- estimateSizeFactors(ods_filt)
   ods_filt <- estimateBestQ(ods_filt, useOHT = TRUE)
-  ods_filt <- controlForConfounders(ods_filt, iterations = iterations)
+  ods_filt <- controlForConfounders(ods_filt, iterations = iterations, BPPARAM = bpparam)
 
   ### Sample exclusion ###
   sampleExclusionMask(ods_filt) <- FALSE

@@ -3,12 +3,30 @@
 # sample_confidence_report() : Evaluates the confidence we can have in a specific prediction
 
 
+import os
 from pathlib import Path
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import roc_curve, auc, confusion_matrix
+from joblib import Parallel, delayed
+
+
+def _n_jobs():
+    """Parallel worker budget. Honors SHINY_N_CORES (set by the launchers to
+    ~3/4 of the host cores); otherwise falls back to 3/4 of os.cpu_count().
+    Always >= 1. Bootstrap loops below use a thread backend, so this never
+    pessimizes: worst case it behaves like the serial loop."""
+    env = os.environ.get("SHINY_N_CORES", "")
+    try:
+        n = int(env)
+        if n >= 1:
+            return n
+    except (ValueError, TypeError):
+        pass
+    cpu = os.cpu_count() or 1
+    return max(1, int(cpu * 0.75))
 
 
 
@@ -221,7 +239,6 @@ def nested_cv_signature(
         """
         Bootstrap percentile CIs for binary metrics (and AUC if y_score provided).
         """
-        rng = np.random.default_rng(seed)
         y_true = np.asarray(y_true, dtype=int)
         y_pred = np.asarray(y_pred, dtype=int)
         y_score = None if y_score is None else np.asarray(y_score, dtype=float)
@@ -241,33 +258,51 @@ def nested_cv_signature(
         if y_score is not None:
             samples["auc"] = []
 
-        for _ in range(n_boot):
+        # One bootstrap replicate -> dict of metric values (+ auc). Per-replicate
+        # seeds keep results independent of execution order / worker count.
+        def _one_metric_boot(child_seed):
+            rng_b = np.random.default_rng(child_seed)
             if stratified:
                 if len(idx_pos) == 0 or len(idx_neg) == 0:
-                    # cannot stratify
-                    boot_idx = rng.choice(idx_all, size=n, replace=True)
+                    boot_idx = rng_b.choice(idx_all, size=n, replace=True)
                 else:
-                    boot_pos = rng.choice(idx_pos, size=len(idx_pos), replace=True)
-                    boot_neg = rng.choice(idx_neg, size=len(idx_neg), replace=True)
+                    boot_pos = rng_b.choice(idx_pos, size=len(idx_pos), replace=True)
+                    boot_neg = rng_b.choice(idx_neg, size=len(idx_neg), replace=True)
                     boot_idx = np.concatenate([boot_pos, boot_neg])
-                    rng.shuffle(boot_idx)
+                    rng_b.shuffle(boot_idx)
             else:
-                boot_idx = rng.choice(idx_all, size=n, replace=True)
+                boot_idx = rng_b.choice(idx_all, size=n, replace=True)
 
             yb = y_true[boot_idx]
             pb = y_pred[boot_idx]
             mets, _ = _compute_binary_metrics(yb, pb)
-            for m in metric_names:
-                samples[m].append(mets[m])
-
+            row = {m: mets[m] for m in metric_names}
             if y_score is not None:
                 sb = y_score[boot_idx]
-                # With stratified bootstrap, both classes should exist, but be safe:
                 if len(np.unique(yb)) < 2:
-                    samples["auc"].append(np.nan)
+                    row["auc"] = np.nan
                 else:
                     fpr_b, tpr_b, _ = roc_curve(yb, sb)
-                    samples["auc"].append(auc(fpr_b, tpr_b))
+                    row["auc"] = auc(fpr_b, tpr_b)
+            return row
+
+        child_seeds = np.random.SeedSequence(seed).spawn(n_boot)
+        _n = _n_jobs()
+        if _n == 1:
+            rows = [_one_metric_boot(s) for s in child_seeds]
+        else:
+            try:
+                rows = Parallel(n_jobs=_n, prefer="threads")(
+                    delayed(_one_metric_boot)(s) for s in child_seeds
+                )
+            except Exception:
+                rows = [_one_metric_boot(s) for s in child_seeds]
+
+        for row in rows:
+            for m in metric_names:
+                samples[m].append(row[m])
+            if y_score is not None:
+                samples["auc"].append(row["auc"])
 
         out = {}
         for m, vals in samples.items():
@@ -959,7 +994,6 @@ def sample_confidence_report(
     # -------------------------------------------------------------------------
     # Bootstrap: calibration + threshold(s) + CIs
     # -------------------------------------------------------------------------
-    rng = np.random.default_rng(bootstrap_seed)
     idx_all = np.arange(len(y_ref))
     idx_pos = np.where(y_ref == 1)[0]
     idx_neg = np.where(y_ref == 0)[0]
@@ -976,50 +1010,64 @@ def sample_confidence_report(
         t_low_boot = None
         t_high_boot = None
 
-    for b in range(n_bootstrap):
-        # Sample indices
+    # One bootstrap replicate (refit logistic calibration + threshold(s)).
+    # Each replicate gets its own seed so the result is independent of the
+    # execution order (reproducible across runs and worker counts).
+    def _one_conf_boot(child_seed):
+        rng_b = np.random.default_rng(child_seed)
         if bootstrap_stratified and (len(idx_pos) > 0) and (len(idx_neg) > 0):
-            boot_pos = rng.choice(idx_pos, size=len(idx_pos), replace=True)
-            boot_neg = rng.choice(idx_neg, size=len(idx_neg), replace=True)
+            boot_pos = rng_b.choice(idx_pos, size=len(idx_pos), replace=True)
+            boot_neg = rng_b.choice(idx_neg, size=len(idx_neg), replace=True)
             boot_idx = np.concatenate([boot_pos, boot_neg])
-            rng.shuffle(boot_idx)
+            rng_b.shuffle(boot_idx)
         else:
-            boot_idx = rng.choice(idx_all, size=len(idx_all), replace=True)
+            boot_idx = rng_b.choice(idx_all, size=len(idx_all), replace=True)
 
         yb = y_ref[boot_idx]
         sb = s_ref[boot_idx]
 
+        p_vec = np.full(n_query, np.nan, dtype=float)
+        thr_v = np.nan
+        tl_v = np.nan
+        th_v = np.nan
+
         # Need both classes for ROC/logit
-        if len(np.unique(yb)) < 2:
-            continue
-
-        # Boot logit fit -> p_boot
-        try:
-            model_b = _fit_logit(sb, yb)
-            p_boot[b, :] = model_b.predict_proba(scores_query_oriented.reshape(-1, 1))[:, 1]
-        except Exception:
-            continue
-
-        # Boot threshold
-        try:
-            thr_b = _pick_threshold_from_scores(yb, sb, criterion=threshold_criterion)
-            thr_boot[b] = thr_b
-        except Exception:
-            thr_boot[b] = np.nan
-
-        # Boot gray thresholds
-        if has_gray:
+        if len(np.unique(yb)) >= 2:
             try:
-                tl_b, th_b = _pick_gray_thresholds_from_scores(
-                    yb, sb,
-                    target_sens=target_sens,
-                    target_spec=target_spec
-                )
-                t_low_boot[b] = tl_b
-                t_high_boot[b] = th_b
+                model_b = _fit_logit(sb, yb)
+                p_vec = model_b.predict_proba(scores_query_oriented.reshape(-1, 1))[:, 1]
             except Exception:
-                t_low_boot[b] = np.nan
-                t_high_boot[b] = np.nan
+                pass
+            try:
+                thr_v = _pick_threshold_from_scores(yb, sb, criterion=threshold_criterion)
+            except Exception:
+                thr_v = np.nan
+            if has_gray:
+                try:
+                    tl_v, th_v = _pick_gray_thresholds_from_scores(
+                        yb, sb, target_sens=target_sens, target_spec=target_spec)
+                except Exception:
+                    tl_v, th_v = np.nan, np.nan
+        return p_vec, thr_v, tl_v, th_v
+
+    _child_seeds = np.random.SeedSequence(bootstrap_seed).spawn(n_bootstrap)
+    _n = _n_jobs()
+    if _n == 1:
+        _boot_results = [_one_conf_boot(s) for s in _child_seeds]
+    else:
+        try:
+            _boot_results = Parallel(n_jobs=_n, prefer="threads")(
+                delayed(_one_conf_boot)(s) for s in _child_seeds
+            )
+        except Exception:
+            _boot_results = [_one_conf_boot(s) for s in _child_seeds]
+
+    for b, (_p_vec, _thr_v, _tl_v, _th_v) in enumerate(_boot_results):
+        p_boot[b, :] = _p_vec
+        thr_boot[b] = _thr_v
+        if has_gray:
+            t_low_boot[b] = _tl_v
+            t_high_boot[b] = _th_v
 
     # Derived bootstrap arrays
     confidence_boot = np.maximum(p_boot, 1 - p_boot)

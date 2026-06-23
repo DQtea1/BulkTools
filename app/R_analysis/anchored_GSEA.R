@@ -67,7 +67,7 @@ anchored_GSEA_pipe <- function(rnafilt_counts, clinic_annot, output_dir, anchor_
         ranks <- ranks[names(ranks) != anchor_gene]  # On enleve BSG prck forcement il est corrélé à lui même
 
         report(0.7, "running GSEA (fgsea on adjusted ranks)")
-        res_adjusted <- fgseaMultilevel(pathways=selected_pathways, stats=ranks, minSize=min_size, maxSize=10000)
+        res_adjusted <- fgseaMultilevel(pathways=selected_pathways, stats=ranks, minSize=min_size, maxSize=10000, nproc=n_parallel_cores())
         res_adjusted <- res_adjusted[order(abs(res_adjusted$padj), decreasing = FALSE), ]
         res_adjusted = flatten_list_cols(res_adjusted)
 
@@ -84,17 +84,20 @@ anchored_GSEA_pipe <- function(rnafilt_counts, clinic_annot, output_dir, anchor_
         E <- rnafilt_counts   # genes x samples, rownames = symbols
         anch_gene <- as.numeric(E[anchor_gene, ])
 
-        # gene-wise association to BSG
-        stats <- apply(E, 1, function(x)
-        cor(x, anch_gene, method = "spearman", use = "pairwise.complete.obs")
-        )
+        # Gene-wise Spearman correlation to the anchor gene, vectorized:
+        # cor(samples x genes, anchor_vector) computes every gene's correlation
+        # in a single ranked matrix call instead of an R-level apply() loop.
+        stats <- as.numeric(cor(t(E), anch_gene, method = "spearman",
+                                 use = "pairwise.complete.obs"))
+        names(stats) <- rownames(E)
+        stats <- stats[is.finite(stats)]   # drop zero-variance genes (NA corr)
 
         stats <- sort(stats, decreasing = TRUE)
         stats <- stats[names(stats) != anchor_gene]  # On enleve BSG prck forcement il est corrélé à lui même
 
         report(0.7, "running GSEA (fgsea on correlation ranks)")
         # selected_pathways: named list of character vectors (gene symbols)
-        res_simple <- fgseaMultilevel(pathways = selected_pathways, stats = stats, minSize = min_size, maxSize = 500)
+        res_simple <- fgseaMultilevel(pathways = selected_pathways, stats = stats, minSize = min_size, maxSize = 500, nproc = n_parallel_cores())
         res_simple <- res_simple[order(abs(res_simple$padj), decreasing = FALSE), ]
 
         res_simple = flatten_list_cols(res_simple)

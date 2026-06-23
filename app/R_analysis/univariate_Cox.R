@@ -116,10 +116,21 @@ univariate_cox_pipe <- function(rnafilt_counts,
     )
   }
 
-  report(0.3, sprintf("fitting univariate Cox over %d features", ncol(expr_mat_scaled)))
-  res_list <- lapply(seq_len(ncol(expr_mat_scaled)), function(j) {
-    cox_one_feature(expr_mat_scaled[, j])
-  })
+  # Per-feature Cox fits are independent -> parallelize across the core budget.
+  # coxph uses no RNG, so results are identical regardless of worker count.
+  # mclapply forks (Linux/Mac); on Windows it transparently runs serially.
+  n_cores <- n_parallel_cores()
+  report(0.3, sprintf("fitting univariate Cox over %d features (%d core(s))",
+                      ncol(expr_mat_scaled), n_cores))
+  res_list <- parallel::mclapply(
+    seq_len(ncol(expr_mat_scaled)),
+    function(j) cox_one_feature(expr_mat_scaled[, j]),
+    mc.cores = n_cores
+  )
+  # Defensive: if a worker died, mclapply returns a try-error for that element;
+  # recompute those serially so one crashed fork doesn't kill the whole run.
+  failed <- which(!vapply(res_list, is.data.frame, logical(1)))
+  for (j in failed) res_list[[j]] <- cox_one_feature(expr_mat_scaled[, j])
   res <- do.call(rbind, res_list)
   res$gene <- colnames(expr_mat_scaled)
   res <- res %>%
@@ -201,7 +212,8 @@ univariate_cox_pipe <- function(rnafilt_counts,
     pathways = selected_pathways,
     stats    = ranked_genes,
     minSize  = gsea_min_size,
-    maxSize  = 500
+    maxSize  = 500,
+    nproc    = n_cores
   )
 
   res_gsea <- res_gsea[order(abs(res_gsea$NES), decreasing = TRUE), ]

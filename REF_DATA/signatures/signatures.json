@@ -1,5 +1,5 @@
 {
-"geneset_anti-PD1" : {  
+"Ayers_anti-PD1" : {  
     "T_cell_inflammed" : {
         "geneset" : {
             "PSMB10" : 1,
@@ -55,8 +55,10 @@
             "STAT1" : 1,
             "GZMB" : 1},
         "source" : "https://doi.org/10.1172/JCI91190", 
-        "Author" : "Mark Ayers et al."},
-    
+        "Author" : "Mark Ayers et al."}
+},
+
+"test" : {
     "TNFSF_NF-kB" : {
         "geneset" : {
             "CD40" : 1,
@@ -122,8 +124,10 @@
         },
         "source" : "Homemade",
         "Description" : "Leading edge of REACTOME_SIGNALING_BY_ACTIVIN between R/NR in IFNg-high predimel patients"
-    },
+    }
+},
 
+"CAF_signatures" : {
     "CAF/TGFB" : {
         "geneset" : {
             "FAP" : 1,
@@ -183,10 +187,9 @@
             "HAS1" : 1},
         "source" : "chat",
         "Description" : "Signature iCAF, plus inflammatoire, moins ECM"
-    },
-
-
-
+    }
+},
+"genesets_ICA" : {
     "LB_ICA" : {
         "geneset" : {
             "JCHAIN" : 1,

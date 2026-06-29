@@ -5,7 +5,9 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from sklearn.metrics import roc_curve
+from sklearn.metrics import roc_curve, roc_auc_score
+from scipy.stats import mannwhitneyu
+from scipy import stats
 from matplotlib.patches import Rectangle
 from pathlib import Path
 from joblib import Parallel, delayed
@@ -1030,4 +1032,392 @@ def myROC_AUC_v2(
         "precision": prec,
         "recall": rec,
         "f1": f1,
+    }
+
+
+# =====================================================================
+# Signatures comparison module
+# =====================================================================
+
+def plot_signatures_by_condition(
+    cond1_scores: pd.DataFrame,
+    cond2_scores: pd.DataFrame,
+    meta1: pd.DataFrame,
+    meta2: pd.DataFrame,
+    response_col: str,
+    cond1_name: str = "Condition1",
+    cond2_name: str = "Condition2",
+    responder_label: str = "R",
+    nonresponder_label: str = "NR",
+    figsize=None,
+    point_jitter: float = 0.08,
+    box_width: float = 0.6,
+    random_state: int = 42,
+):
+    """Boxplots of every signature side by side, split by condition and response,
+    with a Mann-Whitney (Wilcoxon rank-sum) test R vs NR per signature/condition.
+    Returns (long_df, stats_df, fig, ax)."""
+    rng = np.random.default_rng(random_state)
+
+    common_signatures = [c for c in cond1_scores.columns if c in cond2_scores.columns]
+    if len(common_signatures) == 0:
+        raise ValueError("No signature shared between the two conditions.")
+
+    cond1_scores = cond1_scores.loc[:, common_signatures].copy()
+    cond2_scores = cond2_scores.loc[:, common_signatures].copy()
+
+    def normalize_response(x):
+        if pd.isna(x):
+            return np.nan
+        s = str(x).strip().lower()
+        if s in {"responder", "resp", "r", "respondeur"}:
+            return responder_label
+        if s in {"non-responder", "nonresponder", "non responder", "nr",
+                 "non-repondeur", "non répondeur"}:
+            return nonresponder_label
+        return str(x)
+
+    def build_long(scores_df, meta_df, condition_name):
+        if response_col not in meta_df.columns:
+            raise ValueError(f"Column '{response_col}' missing from metadata for {condition_name}.")
+        common_samples = scores_df.index.intersection(meta_df.index)
+        if len(common_samples) == 0:
+            raise ValueError(f"No shared sample between scores and metadata for {condition_name}.")
+        tmp_scores = scores_df.loc[common_samples].copy()
+        tmp_meta = meta_df.loc[common_samples].copy()
+        tmp_meta["response"] = tmp_meta[response_col].map(normalize_response)
+        df = (
+            tmp_scores
+            .join(tmp_meta[["response"]], how="left")
+            .reset_index(names="sample")
+            .melt(id_vars=["sample", "response"], var_name="signature", value_name="score")
+        )
+        df["condition"] = condition_name
+        return df
+
+    long_df = pd.concat([
+        build_long(cond1_scores, meta1, cond1_name),
+        build_long(cond2_scores, meta2, cond2_name),
+    ], ignore_index=True)
+    long_df = long_df.dropna(subset=["score", "response"]).copy()
+    long_df = long_df[long_df["response"].isin([responder_label, nonresponder_label])].copy()
+
+    group_order = [
+        (cond1_name, responder_label), (cond1_name, nonresponder_label),
+        (cond2_name, responder_label), (cond2_name, nonresponder_label),
+    ]
+
+    stats_rows = []
+    for sig in common_signatures:
+        for cond_name in [cond1_name, cond2_name]:
+            sub = long_df[(long_df["signature"] == sig) & (long_df["condition"] == cond_name)]
+            x = sub.loc[sub["response"] == responder_label, "score"].dropna().values
+            y = sub.loc[sub["response"] == nonresponder_label, "score"].dropna().values
+            if len(x) == 0 or len(y) == 0:
+                stat, pval = np.nan, np.nan
+            else:
+                res = mannwhitneyu(x, y, alternative="two-sided")
+                stat, pval = res.statistic, res.pvalue
+            stats_rows.append({
+                "signature": sig, "condition": cond_name,
+                "n_responder": len(x), "n_nonresponder": len(y),
+                "statistic": stat, "pvalue": pval,
+            })
+    stats_df = pd.DataFrame(stats_rows)
+
+    n_sig = len(common_signatures)
+    if figsize is None:
+        figsize = (max(12, n_sig * 3.2), 7)
+    fig, ax = plt.subplots(figsize=figsize)
+    colors = {responder_label: "#1F30C9", nonresponder_label: "#F82408"}
+
+    positions, xtick_positions, xtick_labels = [], [], []
+    current_x = 1
+    gap_between_signatures = 1.5
+    pos_map = {}
+
+    all_scores = long_df["score"].dropna().values
+    if len(all_scores) == 0:
+        raise ValueError("No score value to plot.")
+    y_min, y_max = np.min(all_scores), np.max(all_scores)
+    y_range = y_max - y_min if y_max > y_min else 1.0
+
+    for sig in common_signatures:
+        for cond_name, resp_name in group_order:
+            sub = long_df[(long_df["signature"] == sig) &
+                          (long_df["condition"] == cond_name) &
+                          (long_df["response"] == resp_name)]["score"].dropna().values
+            x_pos = current_x
+            positions.append(x_pos)
+            pos_map[(sig, cond_name, resp_name)] = x_pos
+            if len(sub) > 0:
+                bp = ax.boxplot([sub], positions=[x_pos], widths=box_width,
+                                patch_artist=True, showfliers=False)
+                for patch in bp["boxes"]:
+                    patch.set_facecolor(colors[resp_name]); patch.set_alpha(0.65)
+                    patch.set_edgecolor("black")
+                for median in bp["medians"]:
+                    median.set_color("black"); median.set_linewidth(1.5)
+                jitter = rng.normal(0, point_jitter, size=len(sub))
+                ax.scatter(np.full(len(sub), x_pos) + jitter, sub, s=22, alpha=0.7,
+                           color=colors[resp_name], edgecolor="black", linewidth=0.3)
+            xtick_positions.append(x_pos)
+            xtick_labels.append(f"{sig}\n{cond_name}\n{resp_name}")
+            current_x += 1
+        current_x += gap_between_signatures
+
+    def add_pvalue_bar(ax, x1, x2, y, h, text):
+        ax.plot([x1, x1, x2, x2], [y, y + h, y + h, y], lw=1.2, c="black")
+        ax.text((x1 + x2) / 2, y + h, text, ha="center", va="bottom", fontsize=9)
+
+    sig_counter = {sig: 0 for sig in common_signatures}
+    for _, row in stats_df.iterrows():
+        sig, cond_name, pval = row["signature"], row["condition"], row["pvalue"]
+        if (sig, cond_name, responder_label) not in pos_map:
+            continue
+        x1 = pos_map[(sig, cond_name, responder_label)]
+        x2 = pos_map[(sig, cond_name, nonresponder_label)]
+        base_y = y_max + (sig_counter[sig] + 1) * (0.08 * y_range)
+        h = 0.025 * y_range
+        label = "p = NA" if pd.isna(pval) else f"p = {pval:.3g}"
+        add_pvalue_bar(ax, x1, x2, base_y, h, label)
+        sig_counter[sig] += 1
+
+    ax.set_xticks(xtick_positions)
+    ax.set_xticklabels(xtick_labels, rotation=45, ha="right")
+    ax.set_ylabel("Signature score")
+    ax.set_title("Signature scores by condition and response status")
+    ax.set_ylim(y_min - 0.05 * y_range, y_max + 0.28 * y_range)
+    ax.grid(axis="y", linestyle="--", alpha=0.4)
+    legend_handles = [
+        plt.Line2D([0], [0], marker="s", color="w", label=responder_label,
+                   markerfacecolor=colors[responder_label], markeredgecolor="black",
+                   markersize=12, alpha=0.65),
+        plt.Line2D([0], [0], marker="s", color="w", label=nonresponder_label,
+                   markerfacecolor=colors[nonresponder_label], markeredgecolor="black",
+                   markersize=12, alpha=0.65),
+    ]
+    ax.legend(handles=legend_handles, title="Response", frameon=False)
+    plt.tight_layout()
+    return long_df, stats_df, fig, ax
+
+
+def _bh_correct(pvals):
+    p = np.asarray(pvals, dtype=float)
+    n = p.size
+    if n == 0:
+        return p
+    order = np.argsort(p)
+    ranked = p[order] * n / (np.arange(n) + 1)
+    ranked = np.minimum.accumulate(ranked[::-1])[::-1]
+    out = np.empty(n)
+    out[order] = np.clip(ranked, 0, 1)
+    return out
+
+
+def _corr_with_pvalues(data, method):
+    cols = data.columns
+    n = len(cols)
+    corr = np.eye(n)
+    pval = np.zeros((n, n))
+    test = {"pearson": stats.pearsonr, "spearman": stats.spearmanr,
+            "kendall": stats.kendalltau}[method]
+    for i in range(n):
+        for j in range(i + 1, n):
+            x, y = data.iloc[:, i], data.iloc[:, j]
+            ok = x.notna() & y.notna()
+            if ok.sum() < 3:
+                r, p = np.nan, np.nan
+            else:
+                r, p = test(x[ok], y[ok])
+            corr[i, j] = corr[j, i] = r
+            pval[i, j] = pval[j, i] = p
+    return (pd.DataFrame(corr, index=cols, columns=cols),
+            pd.DataFrame(pval, index=cols, columns=cols))
+
+
+def _pval_to_stars(p):
+    if np.isnan(p):
+        return ""
+    return "***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else ""
+
+
+def plot_correlation_matrix(df, method="spearman", fdr=False, mask_upper=True,
+                            show_values=True, title=None, ax=None, cmap="coolwarm"):
+    """Correlation heatmap (matplotlib, no seaborn) with significance stars."""
+    data = df.select_dtypes(include=[np.number]) if df is not None else df
+    if data is None or data.shape[1] < 2 or data.shape[0] < 3:
+        if ax is None:
+            _, ax = plt.subplots(figsize=(5, 4))
+        ax.text(0.5, 0.5, "Not enough data\n(need >= 3 samples, >= 2 signatures)",
+                ha="center", va="center")
+        ax.set_axis_off()
+        if title:
+            ax.set_title(title)
+        return ax
+
+    corr, pval = _corr_with_pvalues(data, method)
+    if fdr:
+        pv = pval.to_numpy(copy=True)
+        iu = np.triu_indices_from(pv, k=1)
+        q = _bh_correct(pv[iu])
+        pv[iu] = q
+        pv[(iu[1], iu[0])] = q
+        pval = pd.DataFrame(pv, index=pval.index, columns=pval.columns)
+
+    n = corr.shape[0]
+    if ax is None:
+        _, ax = plt.subplots(figsize=(max(6, n * 0.9 + 2), max(5, n * 0.9 + 1)))
+
+    M = corr.values.astype(float).copy()
+    if mask_upper:
+        M = np.ma.array(M, mask=np.triu(np.ones_like(M, dtype=bool), k=1))
+    im = ax.imshow(M, vmin=-1, vmax=1, cmap=cmap)
+    ax.set_xticks(range(n)); ax.set_xticklabels(corr.columns, rotation=45, ha="right", fontsize=8)
+    ax.set_yticks(range(n)); ax.set_yticklabels(corr.index, fontsize=8)
+    for i in range(n):
+        for j in range(n):
+            if (mask_upper and j > i) or i == j:
+                continue
+            stars = _pval_to_stars(pval.iloc[i, j])
+            txt = f"{corr.iloc[i, j]:.2f}\n{stars}" if show_values else stars
+            ax.text(j, i, txt, ha="center", va="center", fontsize=8)
+    cbar = ax.figure.colorbar(im, ax=ax, shrink=0.8)
+    lab = "q-value, BH" if fdr else "p-value"
+    cbar.set_label(f"Correlation ({method})")
+    ax.set_title(title or f"Correlation ({method}) - stars: {lab}", fontsize=12, pad=10)
+    return ax
+
+
+def plot_signature_rocs(cond_map, signatures, responder_label, nonresponder_label,
+                        save_path, figsize=None):
+    """Grid of ROC curves: one row per condition, one column per signature.
+    cond_map: {condition_name: (scores_df, response_series)}."""
+    conds = list(cond_map.keys())
+    n_sig, n_cond = len(signatures), len(conds)
+    if n_sig == 0 or n_cond == 0:
+        raise ValueError("Nothing to plot (no signature or no condition).")
+    if figsize is None:
+        figsize = (max(4, n_sig * 3.2), max(3.2, n_cond * 3.2))
+    fig, axes = plt.subplots(n_cond, n_sig, figsize=figsize, squeeze=False)
+    for ci, cond in enumerate(conds):
+        scores_df, resp = cond_map[cond]
+        y = pd.Series(
+            np.where(np.asarray(resp).astype(str) == responder_label, 1,
+                     np.where(np.asarray(resp).astype(str) == nonresponder_label, 0, np.nan)),
+            index=scores_df.index,
+        )
+        for si, sig in enumerate(signatures):
+            ax = axes[ci][si]
+            s = scores_df[sig]
+            mask = y.notna() & s.notna()
+            yt = y[mask].astype(int).values
+            sc = s[mask].astype(float).values
+            if len(np.unique(yt)) < 2 or len(yt) < 3:
+                ax.text(0.5, 0.5, "n/a", ha="center", va="center")
+                ax.set_xticks([]); ax.set_yticks([])
+            else:
+                try:
+                    auc_v = roc_auc_score(yt, sc)
+                except Exception:
+                    auc_v = np.nan
+                fpr, tpr, _ = roc_curve(yt, sc)
+                ax.plot(fpr, tpr, color="#1F30C9", lw=1.8, label=f"AUC={auc_v:.2f}")
+                ax.plot([0, 1], [0, 1], "--", color="grey", lw=0.8)
+                ax.set_xlim(0, 1); ax.set_ylim(0, 1)
+                ax.legend(loc="lower right", fontsize=8, frameon=False)
+            if ci == n_cond - 1:
+                ax.set_xlabel("FPR", fontsize=8)
+            if si == 0:
+                ax.set_ylabel(f"{cond}\nTPR", fontsize=8)
+            if ci == 0:
+                ax.set_title(sig, fontsize=9)
+    fig.suptitle("ROC by signature and condition", fontsize=12)
+    fig.tight_layout(rect=[0, 0, 1, 0.97])
+    fig.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return save_path
+
+
+def run_signatures_comparison(cond1_scores, cond2_scores, meta1, meta2,
+                              response_col="response",
+                              cond1_name="Condition1", cond2_name="Condition2",
+                              responder_label="R", nonresponder_label="NR",
+                              corr_method="spearman", corr_fdr=False,
+                              out_dir="."):
+    """Orchestrates the three Signatures-comparison panels and saves the PNGs.
+    Returns a dict with the saved paths, the per-subset correlation paths, and
+    the Mann-Whitney stats table."""
+    import os
+    os.makedirs(out_dir, exist_ok=True)
+
+    # reticulate hands R data over as READ-ONLY numpy arrays; rebuild each frame
+    # on a fresh writable buffer so downstream in-place ops don't fail with
+    # "assignment destination is read-only".
+    def _writable_df(df):
+        arr = np.array(df.values, copy=True)
+        return pd.DataFrame(arr, index=list(df.index), columns=list(df.columns))
+
+    cond1_scores = _writable_df(cond1_scores)
+    cond2_scores = _writable_df(cond2_scores)
+    meta1 = _writable_df(meta1)
+    meta2 = _writable_df(meta2)
+
+    # --- Panel 1: boxplots + Wilcoxon ---
+    long_df, stats_df, fig, _ = plot_signatures_by_condition(
+        cond1_scores, cond2_scores, meta1, meta2,
+        response_col=response_col, cond1_name=cond1_name, cond2_name=cond2_name,
+        responder_label=responder_label, nonresponder_label=nonresponder_label)
+    box_path = os.path.join(out_dir, "signatures_boxplots.png")
+    fig.savefig(box_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+    common_sigs = [c for c in cond1_scores.columns if c in cond2_scores.columns]
+    s1 = cond1_scores[common_sigs]
+    s2 = cond2_scores[common_sigs]
+    r1 = meta1[response_col].astype(str)
+    r2 = meta2[response_col].astype(str)
+
+    c1_R = s1.loc[r1 == responder_label]
+    c1_NR = s1.loc[r1 == nonresponder_label]
+    c2_R = s2.loc[r2 == responder_label]
+    c2_NR = s2.loc[r2 == nonresponder_label]
+
+    subsets = {
+        f"{cond1_name}-{responder_label}": c1_R,
+        f"{cond1_name}-{nonresponder_label}": c1_NR,
+        f"{cond2_name}-{responder_label}": c2_R,
+        f"{cond2_name}-{nonresponder_label}": c2_NR,
+        f"{cond1_name} (all)": pd.concat([c1_R, c1_NR]),
+        f"{cond2_name} (all)": pd.concat([c2_R, c2_NR]),
+        f"All {responder_label}": pd.concat([c1_R, c2_R]),
+        f"All {nonresponder_label}": pd.concat([c1_NR, c2_NR]),
+        "All samples": pd.concat([c1_R, c1_NR, c2_R, c2_NR]),
+    }
+
+    corr_dir = os.path.join(out_dir, "correlations")
+    os.makedirs(corr_dir, exist_ok=True)
+    corr_records = []
+    for i, (label, sub) in enumerate(subsets.items(), start=1):
+        safe = label.replace("/", "-").replace(" ", "_").replace("(", "").replace(")", "")
+        p = os.path.join(corr_dir, f"corr_{i:02d}_{safe}.png")
+        fig_c, ax_c = plt.subplots(
+            figsize=(max(6, len(common_sigs) * 0.9 + 2), max(5, len(common_sigs) * 0.9 + 1)))
+        plot_correlation_matrix(sub, method=corr_method, fdr=corr_fdr, mask_upper=False,
+                                title=f"{label}  (n={sub.shape[0]})", ax=ax_c)
+        fig_c.savefig(p, dpi=150, bbox_inches="tight")
+        plt.close(fig_c)
+        corr_records.append({"label": label, "path": p, "n": int(sub.shape[0])})
+
+    # --- Panel 3: ROC grid ---
+    roc_path = os.path.join(out_dir, "signature_rocs.png")
+    plot_signature_rocs(
+        {cond1_name: (s1, r1), cond2_name: (s2, r2)},
+        common_sigs, responder_label, nonresponder_label, roc_path)
+
+    return {
+        "boxplot": box_path,
+        "roc": roc_path,
+        "corr": corr_records,
+        "stats": stats_df,
     }

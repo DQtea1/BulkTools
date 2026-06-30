@@ -124,6 +124,7 @@ mod_signature_proj_ui <- function(id) {
         actionButton(ns("run_signature_proj"), "Run signature projection")
       ),
       navset_card_tab(
+        nav_panel("Tutorial", signature_projection_tutorial_card()),
         nav_panel("Logs", card(verbatimTextOutput(ns("logs")))),
         nav_panel("Projection",
                   card(div(class = "responsive-plot-frame",

@@ -41,15 +41,6 @@ mod_ica_ui <- function(id) {
           numericInput(ns("n_components"), "Number of components (chosen dim) :",
                        value = 10, min = 2, step = 1),
           numericInput(ns("ica_runs"), "ICA runs (stability) :", value = 50, min = 2, step = 1),
-          tags$hr(),
-          tags$strong("Scatter with marginals"),
-          selectInput(ns("scatter_x"), "Metagene X :", choices = character(0),
-                      multiple = FALSE, selectize = FALSE, size = 4),
-          selectInput(ns("scatter_y"), "Metagene Y :", choices = character(0),
-                      multiple = FALSE, selectize = FALSE, size = 4),
-          selectInput(ns("color_col"), "Color by (clinic) :", choices = c("(none)" = ""),
-                      multiple = FALSE, selectize = FALSE, size = 5),
-          numericInput(ns("scatter_bins"), "Marginal bins :", value = 15, min = 5, step = 1),
           actionButton(ns("run_ica"), "Run ICA")
         )
       )
@@ -62,17 +53,26 @@ mod_ica_ui <- function(id) {
                 card(div(class = "responsive-plot-frame",
                          imageOutput(ns("mstd_plot"), width = "100%", height = "100%")))),
       nav_panel("Scatter with marginals",
-                card(div(class = "responsive-plot-frame",
-                         imageOutput(ns("scatter"), width = "100%", height = "100%")))),
+                card(
+                  layout_columns(
+                    col_widths = c(3, 3, 3, 3),
+                    selectInput(ns("scatter_x"), "Metagene X :", choices = character(0),
+                                multiple = FALSE),
+                    selectInput(ns("scatter_y"), "Metagene Y :", choices = character(0),
+                                multiple = FALSE),
+                    selectInput(ns("color_col"), "Color by (clinic) :",
+                                choices = c("(none)" = ""), multiple = FALSE),
+                    numericInput(ns("scatter_bins"), "Marginal bins :", value = 15, min = 5, step = 1)
+                  ),
+                  div(class = "responsive-plot-frame",
+                      imageOutput(ns("scatter"), width = "100%", height = "100%"))
+                )),
       nav_panel("Activity heatmap",
                 card(div(class = "responsive-plot-frame",
                          imageOutput(ns("a_heatmap"), width = "100%", height = "100%")))),
       nav_panel("Metagene gene weights",
                 card(div(class = "responsive-plot-frame",
                          imageOutput(ns("s_dist"), width = "100%", height = "100%")))),
-      nav_panel("Stability index",
-                card(div(class = "responsive-plot-frame",
-                         imageOutput(ns("stability"), width = "100%", height = "100%")))),
       nav_panel("Metagene correlation",
                 card(div(class = "responsive-plot-frame",
                          imageOutput(ns("corr"), width = "100%", height = "100%")))),
@@ -176,15 +176,40 @@ mod_ica_server <- function(id, roots = c(home = "~")) {
           n_runs         = input$ica_runs,
           do_vst         = isTRUE(input$do_vst),
           clinic_annot   = clinic,
-          scatter_x      = input$scatter_x,
-          scatter_y      = input$scatter_y,
-          color_col      = input$color_col,
-          scatter_bins   = input$scatter_bins,
           progress_cb    = function(frac, detail) setProgress(value = frac, detail = detail)
         )
         setProgress(value = 1, detail = "done")
         res
       })
+    })
+
+    # Sync the scatter pickers to the actual metagenes once ICA has run,
+    # preserving the current selection when still valid.
+    observeEvent(ica_res(), {
+      comps <- ica_res()$comp_names
+      sel_x <- if (isTruthy(input$scatter_x) && input$scatter_x %in% comps) input$scatter_x else comps[1]
+      sel_y <- if (isTruthy(input$scatter_y) && input$scatter_y %in% comps) {
+        input$scatter_y
+      } else if (length(comps) >= 2) comps[2] else comps[1]
+      updateSelectInput(session, "scatter_x", choices = comps, selected = sel_x)
+      updateSelectInput(session, "scatter_y", choices = comps, selected = sel_y)
+    })
+
+    # ---- Scatter with marginals: re-plotted live (no ICA re-run needed) ----
+    scatter_path <- reactive({
+      req(ica_res(), input$scatter_x, input$scatter_y)
+      clinic <- if (isTruthy(input$clinic_file)) clinic_df() else NULL
+      plot_scatter_marginals(
+        S            = ica_res()$S,
+        comp_names   = ica_res()$comp_names,
+        sample_names = ica_res()$sample_names,
+        comp_x       = input$scatter_x,
+        comp_y       = input$scatter_y,
+        out_dir      = ica_res()$out_dir,
+        clinic       = clinic,
+        color_col    = input$color_col,
+        bins         = as.integer(input$scatter_bins)
+      )
     })
 
     # ---- Logs ----
@@ -210,10 +235,9 @@ mod_ica_server <- function(id, roots = c(home = "~")) {
     }
 
     output$mstd_plot  <- render_png(reactive(mstd_res()$mstd_plot), "MSTD plot")
-    output$scatter    <- render_png(reactive(ica_res()$scatter), "Scatter with marginals")
+    output$scatter    <- render_png(scatter_path, "Scatter with marginals")
     output$a_heatmap  <- render_png(reactive(ica_res()$activity_heatmap), "Activity heatmap")
     output$s_dist     <- render_png(reactive(ica_res()$source_dist), "Metagene gene weights")
-    output$stability  <- render_png(reactive(ica_res()$stability), "Stability index")
     output$corr       <- render_png(reactive(ica_res()$corr), "Metagene correlation")
     output$clinical_continuous  <- render_png(reactive(ica_res()$clinical$continuous),
                                               "Clinical association (continuous)")

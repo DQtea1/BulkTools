@@ -36,10 +36,9 @@ ICA_tutorial_card <- function() {
       tags$h4("Output tabs"),
       tags$ul(
         tags$li(tags$strong("MSTD"), ": stability vs number of components (step 1)."),
-        tags$li(tags$strong("Scatter with marginals"), ": two metagene activities with stacked marginal histograms, colored by a categorical clinical variable when provided."),
+        tags$li(tags$strong("Scatter with marginals"), ": two metagene activities with stacked marginal histograms, colored by a categorical clinical variable when provided. The metagenes, colour column and bin count can be changed directly in the tab and update live (no ICA re-run)."),
         tags$li(tags$strong("Activity heatmap"), ": metagene activity per sample."),
         tags$li(tags$strong("Metagene gene weights"), ": gene-weight distribution and top genes of each metagene."),
-        tags$li(tags$strong("Stability index"), ": reproducibility of each metagene."),
         tags$li(tags$strong("Metagene correlation"), ": correlation between metagene activities."),
         tags$li(tags$strong("Clinical association"), ": one heatmap per variable type - Spearman correlation for continuous variables, and -log10(p) (Mann-Whitney / Kruskal-Wallis) for categorical variables, with significance stars."),
         tags$li(tags$strong("Matrices"), ": the A (gene weights) and S (sample activities) tables (also saved to disk).")
@@ -47,7 +46,7 @@ ICA_tutorial_card <- function() {
 
       tags$h4("Practical Notes"),
       tags$ul(
-        tags$li("Changing the scatter components or the color variable is applied on the next ", tags$strong("Run ICA"), "."),
+        tags$li("The scatter tab is interactive: changing the metagenes, colour or bins re-plots instantly from the fitted result, without re-running ICA."),
         tags$li("A high number of runs improves stability estimates but is slower."),
         tags$li("Clinical association only appears when a clinic file with matching sample IDs is provided.")
       )

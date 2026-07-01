@@ -50,9 +50,7 @@ mstd_pipe <- function(rnafilt_counts, output_dir, m, M, step, n_runs,
 }
 
 ica_pipe <- function(rnafilt_counts, output_dir, n_components, n_runs,
-                     do_vst = TRUE, clinic_annot = NULL,
-                     scatter_x = NULL, scatter_y = NULL, color_col = NULL,
-                     scatter_bins = 15, progress_cb = NULL) {
+                     do_vst = TRUE, clinic_annot = NULL, progress_cb = NULL) {
     library(reticulate)
 
     report <- function(frac, detail) {
@@ -107,22 +105,11 @@ ica_pipe <- function(rnafilt_counts, output_dir, n_components, n_runs,
     saveRDS(A_df, sub("\\.csv$", ".rds", a_csv))
     saveRDS(S_df, sub("\\.csv$", ".rds", s_csv))
 
-    # Default scatter metagenes: first two if not provided / invalid.
-    if (is.null(scatter_x) || !scatter_x %in% comp_names) scatter_x <- comp_names[1]
-    if (is.null(scatter_y) || !scatter_y %in% comp_names) {
-        scatter_y <- if (K >= 2) comp_names[2] else comp_names[1]
-    }
-    if (!is.null(color_col) && !nzchar(color_col)) color_col <- NULL
-
     report(0.8, "building plots")
-    scatter_path <- plot_scatter_marginals(
-        S = fit$S, comp_names = comp_names, sample_names = sample_names,
-        comp_x = scatter_x, comp_y = scatter_y, out_dir = out_dir,
-        clinic = clinic_annot, color_col = color_col, bins = as.integer(scatter_bins)
-    )
+    # The scatter-with-marginals plot is generated live from the module so the
+    # user can change components without re-running ICA (see mod_ICA.R).
     activity_heatmap_path <- plot_activity_heatmap(fit$S, comp_names, sample_names, out_dir)
     source_dist_path      <- plot_source_distributions(fit$A, comp_names, gene_names, out_dir)
-    stability_path        <- plot_stability_index(fit$stability, comp_names, out_dir)
     corr_path             <- plot_component_correlation(fit$S, comp_names, out_dir)
 
     report(0.92, "clinical association (if clinic provided)")
@@ -130,15 +117,14 @@ ica_pipe <- function(rnafilt_counts, output_dir, n_components, n_runs,
 
     report(1.0, "done")
     list(
-        scatter          = scatter_path,
         activity_heatmap = activity_heatmap_path,
         source_dist      = source_dist_path,
-        stability        = stability_path,
         corr             = corr_path,
         clinical         = clinical,
         A                = A_df,
         S                = S_df,
         comp_names       = comp_names,
+        sample_names     = sample_names,
         out_dir          = out_dir
     )
 }

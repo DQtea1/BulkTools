@@ -11,6 +11,7 @@
 # arrays plus name vectors so reticulate round-trips stay deterministic.
 
 import os
+import re
 import sys
 import types
 
@@ -445,7 +446,13 @@ def plot_scatter_marginals(S, comp_names, sample_names, comp_x, comp_y, out_dir,
     S = _as_matrix(S)  # metagenes x samples
     comp_names = list(comp_names)
     sample_names = [str(s) for s in sample_names]
-    save_path = os.path.join(out_dir, "scatter_%s_vs_%s.png" % (str(comp_x), str(comp_y)))
+    # Encode all parameters in the file name so the browser refreshes the image
+    # whenever the user changes X, Y, the colour column or the bin count.
+    color_tag = str(color_col) if (color_col is not None and str(color_col) != "") else "none"
+    color_tag = re.sub(r"[^0-9A-Za-z_.-]+", "_", color_tag)
+    save_path = os.path.join(
+        out_dir, "scatter_%s_vs_%s_by_%s_bins%d.png"
+        % (str(comp_x), str(comp_y), color_tag, int(bins)))
 
     if comp_x not in comp_names or comp_y not in comp_names:
         return _empty_panel(save_path, "Component(s) not found:\n%s / %s" % (comp_x, comp_y))

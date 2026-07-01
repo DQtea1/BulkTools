@@ -11,6 +11,17 @@
 # arrays plus name vectors so reticulate round-trips stay deterministic.
 
 import os
+import sys
+
+# stabilized-ica shows progress bars through `tqdm.auto`. Under reticulate (no
+# Jupyter frontend) tqdm.auto selects the ipywidgets variant and raises
+# "ImportError: IProgress not found". Force the plain console tqdm *before* sica
+# is imported so MSTD / StabilizedICA fall back to a text progress bar.
+try:
+    import tqdm.std as _tqdm_std
+    sys.modules["tqdm.auto"] = _tqdm_std
+except Exception:
+    pass
 
 import numpy as np
 import pandas as pd

@@ -77,25 +77,32 @@ def _patch_sklearn_agglomerative():
     except Exception:
         return
 
-    orig = _cl.AgglomerativeClustering
-    if "affinity" in inspect.signature(orig.__init__).parameters:
-        return  # installed sklearn still accepts affinity; nothing to do
+    current = _cl.AgglomerativeClustering
+    if getattr(current, "_sica_affinity_shim", False):
+        real = current._sica_real          # already patched; reuse the real class
+    else:
+        try:
+            if "affinity" in inspect.signature(current.__init__).parameters:
+                return  # installed sklearn still accepts affinity; nothing to do
+        except (TypeError, ValueError):
+            return
+        real = current
 
-    base = getattr(orig, "_sica_orig", orig)
+    # A factory (not a subclass): scikit-learn forbids *args in an estimator's
+    # __init__, so we translate affinity -> metric and return a real instance.
+    def _make_agg(*args, affinity=None, **kwargs):
+        if affinity is not None and "metric" not in kwargs:
+            kwargs["metric"] = affinity
+        return real(*args, **kwargs)
 
-    class _AggCompat(base):
-        def __init__(self, *args, affinity=None, **kwargs):
-            if affinity is not None and "metric" not in kwargs:
-                kwargs["metric"] = affinity
-            super().__init__(*args, **kwargs)
-
-    _AggCompat._sica_orig = base
-    _cl.AgglomerativeClustering = _AggCompat
+    _make_agg._sica_affinity_shim = True
+    _make_agg._sica_real = real
+    _cl.AgglomerativeClustering = _make_agg
     for name, mod in list(sys.modules.items()):
         if (name == "sica" or name.startswith("sica.")) and mod is not None:
             if getattr(mod, "AgglomerativeClustering", None) is not None:
                 try:
-                    mod.AgglomerativeClustering = _AggCompat
+                    mod.AgglomerativeClustering = _make_agg
                 except Exception:
                     pass
 

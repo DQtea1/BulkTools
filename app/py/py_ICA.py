@@ -62,6 +62,44 @@ def _silence_tqdm():
                         pass
 
 
+def _patch_sklearn_agglomerative():
+    """Compatibility shim for stabilized-ica on recent scikit-learn.
+
+    stabilized-ica 2.0 calls ``AgglomerativeClustering(affinity=...)``. scikit-learn
+    renamed ``affinity`` to ``metric`` (deprecated in 1.2, removed in 1.4), so the
+    call raises ``TypeError: ... unexpected keyword argument 'affinity'``. We wrap
+    the estimator to translate ``affinity`` -> ``metric`` and rebind it inside any
+    already-imported ``sica`` module (persistent reticulate session).
+    """
+    try:
+        import inspect
+        import sklearn.cluster as _cl
+    except Exception:
+        return
+
+    orig = _cl.AgglomerativeClustering
+    if "affinity" in inspect.signature(orig.__init__).parameters:
+        return  # installed sklearn still accepts affinity; nothing to do
+
+    base = getattr(orig, "_sica_orig", orig)
+
+    class _AggCompat(base):
+        def __init__(self, *args, affinity=None, **kwargs):
+            if affinity is not None and "metric" not in kwargs:
+                kwargs["metric"] = affinity
+            super().__init__(*args, **kwargs)
+
+    _AggCompat._sica_orig = base
+    _cl.AgglomerativeClustering = _AggCompat
+    for name, mod in list(sys.modules.items()):
+        if (name == "sica" or name.startswith("sica.")) and mod is not None:
+            if getattr(mod, "AgglomerativeClustering", None) is not None:
+                try:
+                    mod.AgglomerativeClustering = _AggCompat
+                except Exception:
+                    pass
+
+
 _silence_tqdm()
 
 import numpy as np
@@ -131,6 +169,7 @@ def compute_mstd(expr, gene_names, sample_names, m, M, step, n_runs, out_dir):
     """Run MSTD exactly as in the notebook: MSTD(X.values, m, M, step, n_runs)."""
     from sica.base import MSTD
     _silence_tqdm()  # rebind tqdm inside sica now that it is imported
+    _patch_sklearn_agglomerative()  # affinity -> metric shim for recent sklearn
 
     X = _expr_df(expr, gene_names, sample_names)  # samples x genes
     m, M, step, n_runs = int(m), int(M), int(step), int(n_runs)
@@ -163,6 +202,7 @@ def run_stabilized_ica(expr, gene_names, sample_names, n_components, n_runs, n_j
     """
     from sica.base import StabilizedICA
     _silence_tqdm()  # rebind tqdm inside sica now that it is imported
+    _patch_sklearn_agglomerative()  # affinity -> metric shim for recent sklearn
 
     X = _expr_df(expr, gene_names, sample_names)  # samples x genes
     K = int(n_components)

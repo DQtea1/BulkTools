@@ -12,16 +12,57 @@
 
 import os
 import sys
+import types
 
-# stabilized-ica shows progress bars through `tqdm.auto`. Under reticulate (no
-# Jupyter frontend) tqdm.auto selects the ipywidgets variant and raises
-# "ImportError: IProgress not found". Force the plain console tqdm *before* sica
-# is imported so MSTD / StabilizedICA fall back to a text progress bar.
-try:
-    import tqdm.std as _tqdm_std
-    sys.modules["tqdm.auto"] = _tqdm_std
-except Exception:
-    pass
+
+def _silence_tqdm():
+    """Neutralize tqdm progress bars used by stabilized-ica.
+
+    Under reticulate there is no Jupyter frontend, so `tqdm.auto` selects the
+    ipywidgets variant and raises "ImportError: IProgress not found". We replace
+    tqdm everywhere with a disabled console tqdm. Because reticulate keeps a
+    single persistent Python session, we also rebind it inside any already
+    imported `sica` module (which may have bound the notebook tqdm on an earlier
+    failed run before this patch existed).
+    """
+    try:
+        from tqdm.std import tqdm as _std_tqdm
+    except Exception:
+        return
+
+    class _SilentTqdm(_std_tqdm):
+        def __init__(self, *args, **kwargs):
+            kwargs["disable"] = True          # never render a bar
+            super().__init__(*args, **kwargs)
+
+    def _silent_trange(*args, **kwargs):
+        kwargs["disable"] = True
+        return _SilentTqdm(range(*args), **kwargs)
+
+    # Make every tqdm entry point resolve to the silent, console-only bar.
+    for name in ("tqdm", "tqdm.auto", "tqdm.autonotebook", "tqdm.notebook", "tqdm.std"):
+        mod = sys.modules.get(name)
+        if mod is None:
+            mod = types.ModuleType(name)
+            sys.modules[name] = mod
+        try:
+            mod.tqdm = _SilentTqdm
+            mod.trange = _silent_trange
+        except Exception:
+            pass
+
+    # Rebind tqdm in any sica module that already captured it.
+    for name, mod in list(sys.modules.items()):
+        if (name == "sica" or name.startswith("sica.")) and mod is not None:
+            for attr in ("tqdm", "trange"):
+                if getattr(mod, attr, None) is not None:
+                    try:
+                        setattr(mod, attr, _SilentTqdm if attr == "tqdm" else _silent_trange)
+                    except Exception:
+                        pass
+
+
+_silence_tqdm()
 
 import numpy as np
 import pandas as pd
@@ -89,6 +130,7 @@ def _empty_panel(save_path, message):
 def compute_mstd(expr, gene_names, sample_names, m, M, step, n_runs, out_dir):
     """Run MSTD exactly as in the notebook: MSTD(X.values, m, M, step, n_runs)."""
     from sica.base import MSTD
+    _silence_tqdm()  # rebind tqdm inside sica now that it is imported
 
     X = _expr_df(expr, gene_names, sample_names)  # samples x genes
     m, M, step, n_runs = int(m), int(M), int(step), int(n_runs)
@@ -120,6 +162,7 @@ def run_stabilized_ica(expr, gene_names, sample_names, n_components, n_runs, n_j
       S = pinv(A).T @ X.T               (metagenes x samples) -> "S_matrix"
     """
     from sica.base import StabilizedICA
+    _silence_tqdm()  # rebind tqdm inside sica now that it is imported
 
     X = _expr_df(expr, gene_names, sample_names)  # samples x genes
     K = int(n_components)

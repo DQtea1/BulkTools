@@ -40,19 +40,16 @@ mod_ica_ui <- function(id) {
           "2) Run ICA",
           numericInput(ns("n_components"), "Number of components (chosen dim) :",
                        value = 10, min = 2, step = 1),
-          numericInput(ns("ica_runs"), "ICA runs (stability) :", value = 30, min = 2, step = 1),
-          selectInput(ns("algorithm"), "Algorithm :",
-                      choices = c("parallel", "deflation"),
-                      multiple = FALSE, selectize = FALSE, size = 2),
-          numericInput(ns("max_iter"), "Max iterations :", value = 2000, min = 200, step = 100),
+          numericInput(ns("ica_runs"), "ICA runs (stability) :", value = 50, min = 2, step = 1),
           tags$hr(),
           tags$strong("Scatter with marginals"),
-          selectInput(ns("scatter_x"), "Component X :", choices = character(0),
+          selectInput(ns("scatter_x"), "Metagene X :", choices = character(0),
                       multiple = FALSE, selectize = FALSE, size = 4),
-          selectInput(ns("scatter_y"), "Component Y :", choices = character(0),
+          selectInput(ns("scatter_y"), "Metagene Y :", choices = character(0),
                       multiple = FALSE, selectize = FALSE, size = 4),
           selectInput(ns("color_col"), "Color by (clinic) :", choices = c("(none)" = ""),
                       multiple = FALSE, selectize = FALSE, size = 5),
+          numericInput(ns("scatter_bins"), "Marginal bins :", value = 15, min = 5, step = 1),
           actionButton(ns("run_ica"), "Run ICA")
         )
       )
@@ -67,16 +64,16 @@ mod_ica_ui <- function(id) {
       nav_panel("Scatter with marginals",
                 card(div(class = "responsive-plot-frame",
                          imageOutput(ns("scatter"), width = "100%", height = "100%")))),
-      nav_panel("A matrix heatmap",
+      nav_panel("Activity heatmap",
                 card(div(class = "responsive-plot-frame",
                          imageOutput(ns("a_heatmap"), width = "100%", height = "100%")))),
-      nav_panel("Source distributions",
+      nav_panel("Metagene gene weights",
                 card(div(class = "responsive-plot-frame",
                          imageOutput(ns("s_dist"), width = "100%", height = "100%")))),
       nav_panel("Stability index",
                 card(div(class = "responsive-plot-frame",
                          imageOutput(ns("stability"), width = "100%", height = "100%")))),
-      nav_panel("Component correlation",
+      nav_panel("Metagene correlation",
                 card(div(class = "responsive-plot-frame",
                          imageOutput(ns("corr"), width = "100%", height = "100%")))),
       nav_panel("Clinical association",
@@ -90,12 +87,14 @@ mod_ica_ui <- function(id) {
       nav_panel("Matrices",
                 card(
                   tags$p(class = "text-muted",
-                         "A (activities) and S (metagenes) are also saved under ",
-                         tags$code("output_dir/ICA/"), " as CSV + RDS."),
-                  tags$strong("A - activities (samples x components)"),
+                         "Saved under ", tags$code("output_dir/ICA/"),
+                         " as CSV + RDS (notebook convention): ",
+                         tags$code("A_matrix_*"), " = gene weights (metagenes x genes), ",
+                         tags$code("S_matrix_*"), " = sample activities (metagenes x samples)."),
+                  tags$strong("A - gene weights (genes x metagenes)"),
                   DT::DTOutput(ns("A_table")),
                   tags$hr(),
-                  tags$strong("S - metagenes (genes x components)"),
+                  tags$strong("S - sample activities (samples x metagenes)"),
                   DT::DTOutput(ns("S_table"))
                 ))
     )
@@ -130,10 +129,10 @@ mod_ica_server <- function(id, roots = c(home = "~")) {
       shinyFiles::parseDirPath(roots, input$output_dir)
     })
 
-    # Component pickers follow the chosen number of components (IC1..ICn).
+    # Metagene pickers follow the chosen number of components (Metagene0..K-1).
     observeEvent(input$n_components, {
       req(input$n_components, input$n_components >= 1)
-      comps <- paste0("IC", seq_len(as.integer(input$n_components)))
+      comps <- paste0("Metagene", seq_len(as.integer(input$n_components)) - 1)
       updateSelectInput(session, "scatter_x", choices = comps, selected = comps[1])
       updateSelectInput(session, "scatter_y", choices = comps,
                         selected = if (length(comps) >= 2) comps[2] else comps[1])
@@ -175,13 +174,12 @@ mod_ica_server <- function(id, roots = c(home = "~")) {
           output_dir     = path.expand(output_dir_path()),
           n_components   = input$n_components,
           n_runs         = input$ica_runs,
-          algorithm      = input$algorithm,
-          max_iter       = input$max_iter,
           do_vst         = isTRUE(input$do_vst),
           clinic_annot   = clinic,
           scatter_x      = input$scatter_x,
           scatter_y      = input$scatter_y,
           color_col      = input$color_col,
+          scatter_bins   = input$scatter_bins,
           progress_cb    = function(frac, detail) setProgress(value = frac, detail = detail)
         )
         setProgress(value = 1, detail = "done")
@@ -213,10 +211,10 @@ mod_ica_server <- function(id, roots = c(home = "~")) {
 
     output$mstd_plot  <- render_png(reactive(mstd_res()$mstd_plot), "MSTD plot")
     output$scatter    <- render_png(reactive(ica_res()$scatter), "Scatter with marginals")
-    output$a_heatmap  <- render_png(reactive(ica_res()$A_heatmap), "A matrix heatmap")
-    output$s_dist     <- render_png(reactive(ica_res()$S_dist), "Source distributions")
+    output$a_heatmap  <- render_png(reactive(ica_res()$activity_heatmap), "Activity heatmap")
+    output$s_dist     <- render_png(reactive(ica_res()$source_dist), "Metagene gene weights")
     output$stability  <- render_png(reactive(ica_res()$stability), "Stability index")
-    output$corr       <- render_png(reactive(ica_res()$corr), "Component correlation")
+    output$corr       <- render_png(reactive(ica_res()$corr), "Metagene correlation")
     output$clinical_continuous  <- render_png(reactive(ica_res()$clinical$continuous),
                                               "Clinical association (continuous)")
     output$clinical_categorical <- render_png(reactive(ica_res()$clinical$categorical),
@@ -225,12 +223,14 @@ mod_ica_server <- function(id, roots = c(home = "~")) {
     # ---- Tables ----
     output$A_table <- DT::renderDT({
       req(ica_res()$A)
-      DT::datatable(round(ica_res()$A, 4), options = list(scrollX = TRUE, pageLength = 10))
+      # A is metagenes x genes; transpose so DT paginates over rows (genes).
+      A_disp <- as.data.frame(t(as.matrix(ica_res()$A)))
+      DT::datatable(round(A_disp, 4), options = list(scrollX = TRUE, pageLength = 10))
     })
 
     output$S_table <- DT::renderDT({
       req(ica_res()$S)
-      # Transpose to genes x components so DT paginates over rows (genes).
+      # S is metagenes x samples; transpose so DT paginates over rows (samples).
       S_disp <- as.data.frame(t(as.matrix(ica_res()$S)))
       DT::datatable(round(S_disp, 4), options = list(scrollX = TRUE, pageLength = 10))
     })

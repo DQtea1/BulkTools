@@ -1,14 +1,14 @@
 ### Independent Component Analysis (ICA) of bulk transcriptomic data ###
-# Two entry points, called from R (R_analysis/ICA.R via reticulate):
-#   compute_mstd()          : Most Stable Transcriptomic Dimension (part 1)
-#   run_stabilized_ica()    : stabilized ICA -> S (metagenes) + A (activities) (part 2)
-# Plotting helpers (part 2), each saves a PNG and returns its path:
-#   scatter_with_marginals(), plot_A_heatmap(), plot_source_distributions(),
-#   plot_stability_index(), plot_component_correlation(), plot_clinical_association()
+# Mirrors the workflow of the user's Jupyter notebooks
+# (01_Predimel / 05_Projet_Sarah  ->  04_PCA_ICA/02_ICA.ipynb):
+#   from sica.base import StabilizedICA, MSTD
+#   MSTD(X.values, m, M, step, n_runs)                 -> part 1 diagnostic
+#   sICA = StabilizedICA(n_components, n_runs).fit(X)   -> part 2
+#   A = sICA.S_ (metagenes x genes) ; S = pinv(A).T @ X.T (metagenes x samples)
+#   scatter_with_marginals(ICA_S.T, clinic, anno_col, x, y, ...)  (user function)
 #
-# All heavy numeric objects are exchanged with R as plain numpy matrices plus the
-# corresponding name vectors, so that reticulate round-trips do not depend on how
-# pandas indexes are preserved.
+# X is oriented samples x genes. Matrices are exchanged with R as plain numpy
+# arrays plus name vectors so reticulate round-trips stay deterministic.
 
 import os
 
@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 import matplotlib
 
-# Headless rendering (the app runs without an X server); safe to call before pyplot.
+# Headless rendering (the app runs without an X server).
 try:
     matplotlib.use("Agg")
 except Exception:
@@ -29,39 +29,32 @@ from scipy import stats
 # Helpers
 # --------------------------------------------------------------------------- #
 def _as_matrix(x):
-    """Coerce an object coming from R (matrix / data.frame) into a float ndarray."""
     if isinstance(x, pd.DataFrame):
         return x.to_numpy(dtype=float)
     return np.asarray(x, dtype=float)
 
 
-def _expr_fit_matrix(expr, gene_names, sample_names):
-    """Return X of shape (n_samples, n_genes) for sica.
-
-    `expr` is the bulk matrix genes x samples (as passed from R). sica expects
-    observations (samples) in rows and features (genes) in columns.
-    """
-    mat = _as_matrix(expr)  # genes x samples
-    if mat.shape[0] != len(gene_names) or mat.shape[1] != len(sample_names):
-        # Be forgiving if R passed it already oriented samples x genes.
-        if mat.shape[0] == len(sample_names) and mat.shape[1] == len(gene_names):
-            mat = mat.T
-        else:
-            raise ValueError(
-                "Expression matrix shape %s does not match %d genes x %d samples."
-                % (mat.shape, len(gene_names), len(sample_names))
-            )
-    return mat.T  # samples x genes
+def _expr_df(expr, gene_names, sample_names):
+    """Return X as a DataFrame of shape (samples, genes), like the notebooks."""
+    mat = _as_matrix(expr)  # genes x samples (as passed from R)
+    gene_names = list(gene_names)
+    sample_names = list(sample_names)
+    if mat.shape == (len(gene_names), len(sample_names)):
+        mat = mat.T
+    elif mat.shape != (len(sample_names), len(gene_names)):
+        raise ValueError(
+            "Expression matrix shape %s matches neither genes x samples (%d x %d) "
+            "nor samples x genes." % (mat.shape, len(gene_names), len(sample_names)))
+    return pd.DataFrame(mat, index=[str(s) for s in sample_names], columns=list(gene_names))
 
 
-def _map_algorithm(algorithm):
-    alg_map = {
-        "parallel": "fastica_par",
-        "deflation": "fastica_def",
-        "fastica_par": "fastica_par",
-        "fastica_def": "fastica_def",
-    }
-    return alg_map.get(str(algorithm), str(algorithm))
+def _stability_indexes(sICA, n_components):
+    for attr in ("stability_indexes_", "stability_index_", "stability_"):
+        if hasattr(sICA, attr):
+            stab = np.asarray(getattr(sICA, attr), dtype=float).ravel()
+            if stab.size == n_components:
+                return stab
+    return np.full(int(n_components), np.nan)
 
 
 def _pval_to_stars(p):
@@ -80,202 +73,337 @@ def _empty_panel(save_path, message):
 
 
 # --------------------------------------------------------------------------- #
-# Part 1 : Most Stable Transcriptomic Dimension
+# Part 1 : Most Stable Transcriptomic Dimension (sica.base.MSTD)
 # --------------------------------------------------------------------------- #
-def compute_mstd(expr, gene_names, sample_names, m, M, step, n_runs,
-                 out_dir, max_iter=2000, n_jobs=-1):
-    """Run the MSTD diagnostic (stability index vs number of components).
+def compute_mstd(expr, gene_names, sample_names, m, M, step, n_runs, out_dir):
+    """Run MSTD exactly as in the notebook: MSTD(X.values, m, M, step, n_runs)."""
+    from sica.base import MSTD
 
-    Returns {"save_path": <png path>}.
-    """
-    from sica.mstd import MSTD
-
-    X = _expr_fit_matrix(expr, gene_names, sample_names)
+    X = _expr_df(expr, gene_names, sample_names)  # samples x genes
     m, M, step, n_runs = int(m), int(M), int(step), int(n_runs)
     os.makedirs(out_dir, exist_ok=True)
+    save_path = os.path.join(out_dir, "MSTD_plot.png")
 
-    # MSTD draws into the current figure (it creates its own axes when ax=None).
-    MSTD(X, m, M, step, n_runs, max_iter=int(max_iter), n_jobs=int(n_jobs))
+    # The number of components cannot exceed the number of samples.
+    M = min(M, X.shape[0] - 1, X.shape[1])
+    if M < m:
+        return _empty_panel(save_path,
+                            "Invalid dimension range after clamping (min=%d, max=%d).\n"
+                            "Max is limited by the number of samples." % (m, M))
+
+    MSTD(X.values, m=m, M=M, step=step, n_runs=n_runs)
     fig = plt.gcf()
     fig.set_size_inches(13, 6)
-    save_path = os.path.join(out_dir, "MSTD_plot.png")
     fig.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return {"save_path": save_path}
 
 
 # --------------------------------------------------------------------------- #
-# Part 2 : stabilized ICA
+# Part 2 : stabilized ICA (same A / S convention as the notebook)
 # --------------------------------------------------------------------------- #
-def run_stabilized_ica(expr, gene_names, sample_names, n_components, n_runs,
-                       algorithm="fastica_par", max_iter=2000, n_jobs=-1):
-    """Fit a StabilizedICA and return S (metagenes), A (activities) and stability.
+def run_stabilized_ica(expr, gene_names, sample_names, n_components, n_runs, n_jobs=-1):
+    """Fit StabilizedICA and reproduce the notebook's A / S matrices.
 
-    Returned matrices are plain lists/arrays plus names so R can rebuild
-    data.frames deterministically:
-      - S : (n_components, n_genes)   rows = components, cols = genes
-      - A : (n_samples, n_components) rows = samples,    cols = components
+      A = sICA.S_                       (metagenes x genes)   -> "A_matrix"
+      S = pinv(A).T @ X.T               (metagenes x samples) -> "S_matrix"
     """
     from sica.base import StabilizedICA
 
-    X = _expr_fit_matrix(expr, gene_names, sample_names)
-    n_components = int(n_components)
-    n_runs = int(n_runs)
-    algorithm = _map_algorithm(algorithm)
-    gene_names = list(gene_names)
-    sample_names = list(sample_names)
+    X = _expr_df(expr, gene_names, sample_names)  # samples x genes
+    K = int(n_components)
 
-    # sica 2.x takes n_runs in the constructor; older releases take it in fit().
-    try:
-        sICA = StabilizedICA(
-            n_components=n_components, n_runs=n_runs, algorithm=algorithm,
-            max_iter=int(max_iter), n_jobs=int(n_jobs),
-        )
-        sICA.fit(X)
-    except TypeError:
-        sICA = StabilizedICA(
-            n_components=n_components, max_iter=int(max_iter), n_jobs=int(n_jobs),
-        )
-        sICA.fit(X, n_runs=n_runs, fun="logcosh", algorithm=algorithm)
+    sICA = StabilizedICA(n_components=K, n_runs=int(n_runs), plot=False, n_jobs=int(n_jobs))
+    sICA.fit(X.values)
 
-    S_mat = np.asarray(sICA.S_, dtype=float)          # components x genes
-    A_mat = getattr(sICA, "A_", None)
-    if A_mat is None:
-        # A = X . pinv(S) : (samples x genes) . (genes x components)
-        A_mat = X @ np.linalg.pinv(S_mat)
-    A_mat = np.asarray(A_mat, dtype=float)            # samples x components
+    # Notebook convention (cell "Projection de nos samples dans l'espace des IC"):
+    A_np = np.asarray(sICA.S_, dtype=float)             # metagenes x genes
+    S_np = np.linalg.pinv(A_np).T @ X.values.T          # metagenes x samples
 
-    stab = None
-    for attr in ("stability_indexes_", "stability_index_", "stability_"):
-        if hasattr(sICA, attr):
-            stab = np.asarray(getattr(sICA, attr), dtype=float).ravel()
-            break
-    if stab is None or stab.size != n_components:
-        stab = np.full(n_components, np.nan)
-
-    comp_names = ["IC%d" % (i + 1) for i in range(n_components)]
-    # Return numpy arrays so reticulate hands R plain matrices / vectors.
+    stab = _stability_indexes(sICA, A_np.shape[0])
+    comp_names = ["Metagene%d" % i for i in range(A_np.shape[0])]
     return {
-        "S": S_mat,                     # components x genes
-        "A": A_mat,                     # samples x components
-        "stability": stab,              # length n_components
+        "A": A_np,                     # metagenes x genes   (gene weights)
+        "S": S_np,                     # metagenes x samples (sample activities)
+        "stability": stab,
         "comp_names": comp_names,
-        "gene_names": gene_names,
-        "sample_names": sample_names,
+        "gene_names": list(gene_names),
+        "sample_names": [str(s) for s in sample_names],
     }
 
 
 # --------------------------------------------------------------------------- #
-# Part 2 : plots
+# scatter_with_marginals : verbatim from the user's notebook (matplotlib)
 # --------------------------------------------------------------------------- #
-def scatter_with_marginals(A, comp_names, sample_names, comp_x, comp_y, out_dir,
-                           clinic=None, color_col=None):
-    """Scatter of two components with marginal histograms.
-
-    Colours the points by `color_col` of `clinic` (aligned on sample IDs) when
-    both are provided; otherwise a single colour is used.
+def scatter_with_marginals(
+    df_xy: pd.DataFrame,
+    df_anno: pd.DataFrame,
+    anno_col: str,
+    *,
+    x: str = "x",
+    y: str = "y",
+    key: str = None,                 # if None, join on index; else merge on this column
+    palette: dict = None,            # optional: {category: color}
+    shape_list: list = None,         # optional: list of shapes to use for the annotations
+    hue_order: list = None,          # optional: order of legend categories
+    s: float = 36,
+    alpha: float = 0.9,
+    legend_title: str = None,
+    legend_loc: str = "best",
+    figsize: tuple = (7.5, 6.5),
+    dpi: int = 120,
+    # Marginal histogram controls
+    bins=30,                         # or 'auto', 'fd', etc.
+    bins_x=None,
+    bins_y=None,
+    norm_marginals: bool = False,    # if True, each bin sums to 1 (proportions)
+    hist_alpha: float = 0.95,
+    shape_by: str = None,            # column controlling marker shapes
+):
     """
-    os.makedirs(out_dir, exist_ok=True)
-    A = _as_matrix(A)  # samples x components
-    comp_names = list(comp_names)
-    sample_names = list(sample_names)
-    save_path = os.path.join(out_dir, "scatter_%s_vs_%s.png" % (str(comp_x), str(comp_y)))
-
-    if comp_x not in comp_names or comp_y not in comp_names:
-        return _empty_panel(save_path, "Component(s) not found:\n%s / %s" % (comp_x, comp_y))
-
-    xi = comp_names.index(comp_x)
-    yi = comp_names.index(comp_y)
-    x = A[:, xi]
-    y = A[:, yi]
-
-    # Optional colouring from the clinical table.
-    color_values = None
-    if clinic is not None and color_col is not None and str(color_col) != "":
-        color_values = _align_clinic_column(clinic, sample_names, color_col)
-
-    fig = plt.figure(figsize=(9, 8))
-    gs = fig.add_gridspec(4, 4, hspace=0.05, wspace=0.05)
-    ax = fig.add_subplot(gs[1:4, 0:3])
-    ax_top = fig.add_subplot(gs[0, 0:3], sharex=ax)
-    ax_right = fig.add_subplot(gs[1:4, 3], sharey=ax)
-
-    if color_values is None:
-        ax.scatter(x, y, s=35, alpha=0.75, color="#1F30C9", edgecolor="white", linewidth=0.4)
-        ax_top.hist(x, bins=30, color="#1F30C9", alpha=0.7)
-        ax_right.hist(y, bins=30, orientation="horizontal", color="#1F30C9", alpha=0.7)
+    Scatter of df_xy[x] vs df_xy[y] colored by df_anno[anno_col] (categorical),
+    with marginal stacked histograms (top for X, right for Y).
+    """
+    # --- Align data ---
+    if key is None:
+        merged = df_xy.join(df_anno[[anno_col] + ([shape_by] if shape_by else [])], how="inner")
     else:
-        vals = color_values
-        numeric = pd.api.types.is_numeric_dtype(vals) and vals.nunique(dropna=True) > 6
-        if numeric:
-            sc = ax.scatter(x, y, s=35, alpha=0.8, c=vals.astype(float).values,
-                            cmap="viridis", edgecolor="white", linewidth=0.4)
-            cbar = fig.colorbar(sc, ax=ax_right, shrink=0.7)
-            cbar.set_label(str(color_col))
-            ax_top.hist(x, bins=30, color="grey", alpha=0.6)
-            ax_right.hist(y, bins=30, orientation="horizontal", color="grey", alpha=0.6)
-        else:
-            cats = vals.astype("object").where(vals.notna(), "NA").astype(str)
-            levels = sorted(cats.unique())
-            cmap = plt.get_cmap("tab10" if len(levels) <= 10 else "tab20")
-            for k, lev in enumerate(levels):
-                mask = (cats.values == lev)
-                col = cmap(k % cmap.N)
-                ax.scatter(x[mask], y[mask], s=35, alpha=0.8, color=col,
-                           edgecolor="white", linewidth=0.4, label=lev)
-                ax_top.hist(x[mask], bins=20, color=col, alpha=0.5)
-                ax_right.hist(y[mask], bins=20, orientation="horizontal", color=col, alpha=0.5)
-            ax.legend(title=str(color_col), fontsize=8, title_fontsize=9,
-                      loc="best", frameon=True)
+        cols = [key, anno_col] + ([shape_by] if shape_by else [])
+        merged = (
+            df_xy.reset_index(drop=True)
+                .merge(df_anno[cols], on=key, how="inner")
+        )
+    if merged.empty:
+        raise ValueError("No overlapping rows between df_xy and df_anno.")
 
-    ax.set_xlabel(str(comp_x))
-    ax.set_ylabel(str(comp_y))
-    ax.axhline(0, color="grey", lw=0.6, ls="--")
-    ax.axvline(0, color="grey", lw=0.6, ls="--")
-    plt.setp(ax_top.get_xticklabels(), visible=False)
-    plt.setp(ax_right.get_yticklabels(), visible=False)
-    ax_top.set_yticks([]); ax_right.set_xticks([])
-    fig.suptitle("Sample activities: %s vs %s" % (comp_x, comp_y), fontsize=13)
+    # --- Categories & colors ---
+    cats = pd.Categorical(merged[anno_col].astype("category"))
+    categories = list(cats.categories)
+    if hue_order is not None:
+        categories = [c for c in hue_order if c in categories]
+
+    if palette is None:
+        base_colors = plt.rcParams["axes.prop_cycle"].by_key().get("color", [])
+        if len(base_colors) < len(categories):
+            cmap = plt.get_cmap("tab20")
+            extra = [cmap(i % cmap.N) for i in range(len(categories) - len(base_colors))]
+            colors = base_colors + extra
+        else:
+            colors = base_colors[:len(categories)]
+        color_map = dict(zip(categories, colors))
+    else:
+        color_map = {c: palette.get(c, "lightgray") for c in categories}
+
+    # --- Shapes ---
+    if shape_by is not None:
+        merged["_shape_key"] = merged[shape_by].astype("string").fillna("NA").str.strip()
+        shape_classes = pd.unique(merged["_shape_key"])
+        if shape_list is None:
+            _markers = ['*', 'X', 'o', 's', '^', 'D', 'v', '<', '>', 'P']
+        else:
+            _markers = shape_list
+        shape_map = {c: _markers[i % len(_markers)] for i, c in enumerate(shape_classes)}
+    else:
+        merged["_shape_key"] = "__all__"
+        shape_classes = ["__all__"]
+        shape_map = {"__all__": "o"}
+
+    # --- Layout ---
+    fig = plt.figure(figsize=figsize, dpi=dpi)
+    gs = fig.add_gridspec(
+        2, 2, width_ratios=(4, 1.1), height_ratios=(1.1, 4),
+        wspace=0.06, hspace=0.06
+    )
+    ax_scatter = fig.add_subplot(gs[1, 0])
+    ax_histx = fig.add_subplot(gs[0, 0], sharex=ax_scatter)
+    ax_histy = fig.add_subplot(gs[1, 1], sharey=ax_scatter)
+
+    # --- Scatter ---
+    done = set()  # ensure one label per color category
+    for cat in categories:
+        sub_cat = merged[cats == cat]
+        for j, (shp, sub) in enumerate(sub_cat.groupby("_shape_key", dropna=False)):
+            label = str(cat) if (cat not in done and j == 0) else None
+            ax_scatter.scatter(
+                sub[x], sub[y],
+                s=s, alpha=alpha, label=label,
+                c=[color_map[cat]],
+                marker=shape_map.get(shp, "o"),
+                edgecolors="k", linewidths=0.3
+            )
+        done.add(cat)
+
+    ax_scatter.set_xlabel(x)
+    ax_scatter.set_ylabel(y)
+    ax_scatter.set_title('Scatter colored by "%s"' % anno_col)
+    ax_scatter.grid(True, linestyle=":", linewidth=0.6, alpha=0.6)
+
+    leg1 = ax_scatter.legend(title=legend_title or anno_col, frameon=False, loc=legend_loc)
+
+    if shape_by is not None:
+        from matplotlib.lines import Line2D
+        ax_scatter.add_artist(leg1)
+        shape_handles = [
+            Line2D([0], [0], marker=shape_map[c], linestyle="None", color="k", markersize=7)
+            for c in shape_classes
+        ]
+        ax_scatter.legend(shape_handles, list(shape_classes), title=shape_by, frameon=False, loc="lower left")
+
+    # --- Bins (shared across categories) ---
+    x_vals = merged[x].to_numpy()
+    y_vals = merged[y].to_numpy()
+    edges_x = np.histogram_bin_edges(x_vals, bins=bins_x or bins)
+    edges_y = np.histogram_bin_edges(y_vals, bins=bins_y or bins)
+    nbx = len(edges_x) - 1
+    nby = len(edges_y) - 1
+
+    counts_x = np.zeros((len(categories), nbx), dtype=float)
+    for i, cat in enumerate(categories):
+        counts_x[i], _ = np.histogram(merged.loc[cats == cat, x], bins=edges_x)
+    totals_x = counts_x.sum(axis=0)
+    counts_x_plot = (counts_x / totals_x.clip(min=1)) if norm_marginals else counts_x
+
+    bottom_x = np.zeros(nbx, dtype=float)
+    for i, cat in enumerate(categories):
+        heights = counts_x_plot[i]
+        ax_histx.bar(
+            edges_x[:-1], heights, width=np.diff(edges_x),
+            align="edge", bottom=bottom_x, color=color_map[cat],
+            edgecolor="none", alpha=hist_alpha
+        )
+        bottom_x += heights
+
+    counts_y = np.zeros((len(categories), nby), dtype=float)
+    for i, cat in enumerate(categories):
+        counts_y[i], _ = np.histogram(merged.loc[cats == cat, y], bins=edges_y)
+    totals_y = counts_y.sum(axis=0)
+    counts_y_plot = (counts_y / totals_y.clip(min=1)) if norm_marginals else counts_y
+
+    left_y = np.zeros(nby, dtype=float)
+    for i, cat in enumerate(categories):
+        widths = counts_y_plot[i]
+        ax_histy.barh(
+            edges_y[:-1], widths, height=np.diff(edges_y),
+            align="edge", left=left_y, color=color_map[cat],
+            edgecolor="none", alpha=hist_alpha
+        )
+        left_y += widths
+
+    # --- Cosmetics for marginals ---
+    ax_histx.tick_params(axis="x", labelbottom=False)
+    ax_histx.tick_params(axis="y", left=False, labelleft=False)
+    ax_histy.tick_params(axis="x", bottom=False, labelbottom=False)
+    ax_histy.tick_params(axis="y", labelleft=False)
+
+    for ax in (ax_histx,):
+        for sp in ("right", "top", "left"):
+            ax.spines[sp].set_visible(False)
+    for sp in ("right", "top", "bottom"):
+        ax_histy.spines[sp].set_visible(False)
+
+    if norm_marginals:
+        ax_histx.set_ylim(0, 1)
+        ax_histy.set_xlim(0, 1)
+
+    return fig, {"scatter": ax_scatter, "histx": ax_histx, "histy": ax_histy}, merged, color_map
+
+
+# --------------------------------------------------------------------------- #
+# Plot wrappers (save a PNG, return its path) driven from R
+# --------------------------------------------------------------------------- #
+def _plain_scatter_marginals(df_xy, x, y, save_path):
+    """Uncolored scatter + marginal histograms (used when no clinic is given)."""
+    xv = df_xy[x].to_numpy()
+    yv = df_xy[y].to_numpy()
+    fig = plt.figure(figsize=(7.5, 6.5))
+    gs = fig.add_gridspec(2, 2, width_ratios=(4, 1.1), height_ratios=(1.1, 4),
+                          wspace=0.06, hspace=0.06)
+    ax = fig.add_subplot(gs[1, 0])
+    ax_top = fig.add_subplot(gs[0, 0], sharex=ax)
+    ax_right = fig.add_subplot(gs[1, 1], sharey=ax)
+    ax.scatter(xv, yv, s=32, alpha=0.85, color="#1F30C9", edgecolors="k", linewidths=0.3)
+    ax.set_xlabel(x); ax.set_ylabel(y)
+    ax.axhline(0, color="grey", lw=0.6, ls="--"); ax.axvline(0, color="grey", lw=0.6, ls="--")
+    ax.set_title("Sample activities: %s vs %s" % (x, y))
+    ax_top.hist(xv, bins=30, color="#1F30C9", alpha=0.7)
+    ax_right.hist(yv, bins=30, orientation="horizontal", color="#1F30C9", alpha=0.7)
+    ax_top.tick_params(labelbottom=False); ax_right.tick_params(labelleft=False)
     fig.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return save_path
 
 
-def plot_A_heatmap(A, comp_names, sample_names, out_dir):
-    """Heatmap of the mixing matrix A (components x samples)."""
-    os.makedirs(out_dir, exist_ok=True)
-    A = _as_matrix(A)  # samples x components
-    comp_names = list(comp_names)
-    sample_names = list(sample_names)
-    save_path = os.path.join(out_dir, "A_heatmap.png")
+def plot_scatter_marginals(S, comp_names, sample_names, comp_x, comp_y, out_dir,
+                           clinic=None, color_col=None, bins=15):
+    """Scatter of two metagene activities with marginals (user's function).
 
-    M = A.T  # components x samples
-    n_comp, n_samp = M.shape
-    vmax = np.nanmax(np.abs(M)) if M.size else 1.0
+    `S` is the metagenes x samples activity matrix; it is transposed to
+    samples x metagenes and passed to `scatter_with_marginals` as in the notebook.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    S = _as_matrix(S)  # metagenes x samples
+    comp_names = list(comp_names)
+    sample_names = [str(s) for s in sample_names]
+    save_path = os.path.join(out_dir, "scatter_%s_vs_%s.png" % (str(comp_x), str(comp_y)))
+
+    if comp_x not in comp_names or comp_y not in comp_names:
+        return _empty_panel(save_path, "Component(s) not found:\n%s / %s" % (comp_x, comp_y))
+
+    df_xy = pd.DataFrame(S.T, index=sample_names, columns=comp_names)  # samples x metagenes
+
+    has_clinic = clinic is not None and color_col is not None and str(color_col) != ""
+    if has_clinic:
+        clinic_df = _clinic_frame(clinic)
+        if str(color_col) not in clinic_df.columns:
+            return _plain_scatter_marginals(df_xy, comp_x, comp_y, save_path)
+        try:
+            fig, _, _, _ = scatter_with_marginals(
+                df_xy, clinic_df, anno_col=str(color_col),
+                x=comp_x, y=comp_y, bins=int(bins), legend_title=str(color_col), s=30,
+            )
+        except ValueError as e:
+            return _empty_panel(save_path, str(e))
+        fig.savefig(save_path, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        return save_path
+
+    return _plain_scatter_marginals(df_xy, comp_x, comp_y, save_path)
+
+
+def plot_activity_heatmap(S, comp_names, sample_names, out_dir):
+    """Heatmap of metagene activities (metagenes x samples)."""
+    os.makedirs(out_dir, exist_ok=True)
+    S = _as_matrix(S)  # metagenes x samples
+    comp_names = list(comp_names)
+    sample_names = [str(s) for s in sample_names]
+    save_path = os.path.join(out_dir, "activity_heatmap.png")
+
+    n_comp, n_samp = S.shape
+    vmax = np.nanmax(np.abs(S)) if S.size else 1.0
     fig, ax = plt.subplots(figsize=(max(6, n_samp * 0.18 + 3), max(4, n_comp * 0.4 + 2)))
-    im = ax.imshow(M, aspect="auto", cmap="coolwarm", vmin=-vmax, vmax=vmax)
+    im = ax.imshow(S, aspect="auto", cmap="coolwarm", vmin=-vmax, vmax=vmax)
     ax.set_yticks(range(n_comp)); ax.set_yticklabels(comp_names, fontsize=8)
     if n_samp <= 60:
         ax.set_xticks(range(n_samp)); ax.set_xticklabels(sample_names, rotation=90, fontsize=6)
     else:
         ax.set_xticks([]); ax.set_xlabel("%d samples" % n_samp)
-    ax.set_title("Mixing matrix A (component activity per sample)", fontsize=12)
+    ax.set_title("Metagene activity per sample", fontsize=12)
     fig.colorbar(im, ax=ax, shrink=0.7, label="activity")
     fig.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return save_path
 
 
-def plot_source_distributions(S, comp_names, gene_names, out_dir, top_n=20):
-    """For each metagene (source), show its weight distribution and top genes."""
+def plot_source_distributions(A, comp_names, gene_names, out_dir, top_n=20):
+    """Gene-weight distribution and top genes for each metagene (A = metagenes x genes)."""
     os.makedirs(out_dir, exist_ok=True)
-    S = _as_matrix(S)  # components x genes
+    A = _as_matrix(A)  # metagenes x genes
     comp_names = list(comp_names)
     gene_names = list(gene_names)
     top_n = int(top_n)
-    save_path = os.path.join(out_dir, "source_distributions.png")
+    save_path = os.path.join(out_dir, "metagene_weights.png")
 
-    n_comp = S.shape[0]
+    n_comp = A.shape[0]
     ncol = 2 if n_comp > 1 else 1
     nrow = int(np.ceil(n_comp / ncol))
     fig, axes = plt.subplots(nrow, ncol, figsize=(7 * ncol, 2.6 * nrow), squeeze=False)
@@ -284,14 +412,14 @@ def plot_source_distributions(S, comp_names, gene_names, out_dir, top_n=20):
         if idx >= n_comp:
             ax.set_axis_off()
             continue
-        weights = S[idx, :]
+        weights = A[idx, :]
         ax.hist(weights, bins=60, color="#4C72B0", alpha=0.8)
-        order = np.argsort(-np.abs(weights))[:top_n]
+        order = np.argsort(-np.abs(weights))
         top_labels = ", ".join(str(gene_names[j]) for j in order[:min(top_n, 6)])
         ax.set_title("%s (top: %s ...)" % (comp_names[idx], top_labels), fontsize=8)
         ax.axvline(0, color="grey", lw=0.6, ls="--")
         ax.set_ylabel("genes")
-    fig.suptitle("Metagene (source) weight distributions", fontsize=13)
+    fig.suptitle("Metagene gene-weight distributions", fontsize=13)
     fig.tight_layout(rect=[0, 0, 1, 0.97])
     fig.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -299,7 +427,7 @@ def plot_source_distributions(S, comp_names, gene_names, out_dir, top_n=20):
 
 
 def plot_stability_index(stability, comp_names, out_dir):
-    """Barplot of the per-component stability index."""
+    """Barplot of the per-metagene stability index."""
     os.makedirs(out_dir, exist_ok=True)
     stability = np.asarray(stability, dtype=float).ravel()
     comp_names = list(comp_names)
@@ -316,25 +444,25 @@ def plot_stability_index(stability, comp_names, out_dir):
     ax.set_ylim(0, 1)
     ax.axhline(0.5, color="red", lw=0.8, ls="--", label="0.5")
     ax.set_ylabel("stability index")
-    ax.set_title("Component reproducibility (stability index)", fontsize=12)
+    ax.set_title("Metagene reproducibility (stability index)", fontsize=12)
     ax.legend(fontsize=8, frameon=False)
     fig.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return save_path
 
 
-def plot_component_correlation(A, comp_names, out_dir):
-    """Heatmap of pairwise correlation between component activities."""
+def plot_component_correlation(S, comp_names, out_dir):
+    """Heatmap of pairwise correlation between metagene activities (S = metagenes x samples)."""
     os.makedirs(out_dir, exist_ok=True)
-    A = _as_matrix(A)  # samples x components
+    S = _as_matrix(S)  # metagenes x samples
     comp_names = list(comp_names)
-    save_path = os.path.join(out_dir, "component_correlation.png")
+    save_path = os.path.join(out_dir, "metagene_correlation.png")
 
-    n = A.shape[1]
-    if n < 2 or A.shape[0] < 3:
-        return _empty_panel(save_path, "Need >= 2 components and >= 3 samples\nfor correlation.")
+    n = S.shape[0]
+    if n < 2 or S.shape[1] < 3:
+        return _empty_panel(save_path, "Need >= 2 metagenes and >= 3 samples\nfor correlation.")
 
-    corr = np.corrcoef(A, rowvar=False)
+    corr = np.corrcoef(S)  # metagenes x metagenes
     fig, ax = plt.subplots(figsize=(max(6, n * 0.6 + 2), max(5, n * 0.6 + 1)))
     im = ax.imshow(corr, vmin=-1, vmax=1, cmap="coolwarm")
     ax.set_xticks(range(n)); ax.set_xticklabels(comp_names, rotation=90, fontsize=7)
@@ -344,7 +472,7 @@ def plot_component_correlation(A, comp_names, out_dir):
             for j in range(n):
                 ax.text(j, i, "%.2f" % corr[i, j], ha="center", va="center", fontsize=6)
     fig.colorbar(im, ax=ax, shrink=0.8, label="Pearson r")
-    ax.set_title("Correlation between component activities", fontsize=12)
+    ax.set_title("Correlation between metagene activities", fontsize=12)
     fig.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return save_path
@@ -354,7 +482,6 @@ def plot_component_correlation(A, comp_names, out_dir):
 # Clinical association (one heatmap per variable type)
 # --------------------------------------------------------------------------- #
 def _clinic_frame(clinic):
-    """Return the clinical table as a DataFrame with sample IDs as index."""
     if not isinstance(clinic, pd.DataFrame):
         clinic = pd.DataFrame(clinic)
     clinic = clinic.copy()
@@ -365,18 +492,7 @@ def _clinic_frame(clinic):
     return clinic
 
 
-def _align_clinic_column(clinic, sample_names, col):
-    """Return a pandas Series of `col` aligned to sample_names (NaN when missing)."""
-    clinic = _clinic_frame(clinic)
-    if col not in clinic.columns:
-        return None
-    series = clinic[col]
-    series = series[~series.index.duplicated(keep="first")]
-    return series.reindex([str(s) for s in sample_names])
-
-
 def _classify_columns(clinic, max_cat_levels_for_numeric=6):
-    """Split clinical columns into ('continuous', 'categorical') name lists."""
     continuous, categorical = [], []
     for col in clinic.columns:
         if col == "ID_Patient":
@@ -384,7 +500,7 @@ def _classify_columns(clinic, max_cat_levels_for_numeric=6):
         s = clinic[col]
         numeric = pd.to_numeric(s, errors="coerce")
         n_valid = numeric.notna().sum()
-        if n_valid >= 0.8 * s.notna().sum() and numeric.nunique(dropna=True) > max_cat_levels_for_numeric:
+        if n_valid >= 0.8 * max(s.notna().sum(), 1) and numeric.nunique(dropna=True) > max_cat_levels_for_numeric:
             continuous.append(col)
         else:
             nlev = s.astype(str).replace("nan", np.nan).nunique(dropna=True)
@@ -412,25 +528,25 @@ def _draw_assoc_heatmap(values, pvals, comp_names, var_names, save_path, title,
     return save_path
 
 
-def plot_clinical_association(A, comp_names, sample_names, clinic, out_dir):
-    """Association between component activities and clinical variables.
+def plot_clinical_association(S, comp_names, sample_names, clinic, out_dir):
+    """Association between metagene activities and clinical variables.
 
+    `S` is metagenes x samples; activities are transposed to samples x metagenes.
     Continuous variables -> signed Spearman correlation heatmap.
     Categorical variables -> -log10(p) heatmap (Mann-Whitney if binary,
-    Kruskal-Wallis if >2 modalities). Stars mark significance in both.
-    Returns {"continuous": path|None, "categorical": path|None}.
+    Kruskal-Wallis if >2 modalities). Returns {"continuous": path|None, "categorical": path|None}.
     """
     os.makedirs(out_dir, exist_ok=True)
     out = {"continuous": None, "categorical": None}
     if clinic is None:
         return out
 
-    A = _as_matrix(A)  # samples x components
+    S = _as_matrix(S)  # metagenes x samples
     comp_names = list(comp_names)
     sample_names = [str(s) for s in sample_names]
     clinic = _clinic_frame(clinic)
 
-    A_df = pd.DataFrame(A, index=sample_names, columns=comp_names)
+    A_df = pd.DataFrame(S.T, index=sample_names, columns=comp_names)  # samples x metagenes
     common = [s for s in sample_names if s in set(clinic.index)]
     if len(common) < 3:
         out["continuous"] = _empty_panel(
@@ -443,7 +559,6 @@ def plot_clinical_association(A, comp_names, sample_names, clinic, out_dir):
     continuous, categorical = _classify_columns(clinic)
     n_comp = len(comp_names)
 
-    # --- continuous : Spearman ---
     if continuous:
         vals = np.full((n_comp, len(continuous)), np.nan)
         pvs = np.full((n_comp, len(continuous)), np.nan)
@@ -459,16 +574,14 @@ def plot_clinical_association(A, comp_names, sample_names, clinic, out_dir):
         out["continuous"] = _draw_assoc_heatmap(
             vals, pvs, comp_names, continuous,
             os.path.join(out_dir, "clinical_assoc_continuous.png"),
-            "Component vs continuous clinical variables (Spearman)",
+            "Metagene vs continuous clinical variables (Spearman)",
             "Spearman r", -1, 1, "coolwarm")
 
-    # --- categorical : Mann-Whitney / Kruskal-Wallis -> -log10(p) ---
     if categorical:
         vals = np.full((n_comp, len(categorical)), np.nan)
         pvs = np.full((n_comp, len(categorical)), np.nan)
         for j, col in enumerate(categorical):
-            g = clinic[col].astype(str)
-            g = g.replace("nan", np.nan)
+            g = clinic[col].astype(str).replace("nan", np.nan)
             for i, comp in enumerate(comp_names):
                 yv = A_df[comp]
                 groups = [yv[g == lev].values for lev in g.dropna().unique()]
@@ -489,7 +602,7 @@ def plot_clinical_association(A, comp_names, sample_names, clinic, out_dir):
         out["categorical"] = _draw_assoc_heatmap(
             vals, pvs, comp_names, categorical,
             os.path.join(out_dir, "clinical_assoc_categorical.png"),
-            "Component vs categorical clinical variables (-log10 p)",
+            "Metagene vs categorical clinical variables (-log10 p)",
             "-log10(p)", 0, max(vmax, 1.3), "magma")
 
     return out

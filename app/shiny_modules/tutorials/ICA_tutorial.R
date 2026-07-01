@@ -21,9 +21,9 @@ ICA_tutorial_card <- function() {
 
       tags$h4("Step 2 - Run ICA"),
       tags$ul(
-        tags$li("Set ", tags$strong("Number of components"), " to the value chosen from the MSTD plot, plus the number of runs and the FastICA algorithm (parallel / deflation)."),
-        tags$li("Choose the two components for the ", tags$strong("Scatter with marginals"), " plot, and optionally a clinical column to color the points (requires a clinic file)."),
-        tags$li("Click ", tags$strong("Run ICA"), ". The A (activities) and S (metagenes) matrices are saved under ", tags$code("output_dir/ICA/"), " as CSV + RDS.")
+        tags$li("Set ", tags$strong("Number of components"), " to the value chosen from the MSTD plot, plus the number of stabilization runs."),
+        tags$li("Choose the two metagenes for the ", tags$strong("Scatter with marginals"), " plot, and optionally a categorical clinical column to color the points (requires a clinic file)."),
+        tags$li("Click ", tags$strong("Run ICA"), ". Two matrices are saved under ", tags$code("output_dir/ICA/"), " as CSV + RDS, following the notebook convention: ", tags$code("A_matrix_<K>metagenes"), " (gene weights, metagenes x genes) and ", tags$code("S_matrix_<K>metagenes"), " (sample activities, metagenes x samples).")
       ),
 
       tags$h4("Inputs"),
@@ -36,13 +36,13 @@ ICA_tutorial_card <- function() {
       tags$h4("Output tabs"),
       tags$ul(
         tags$li(tags$strong("MSTD"), ": stability vs number of components (step 1)."),
-        tags$li(tags$strong("Scatter with marginals"), ": two component activities with marginal histograms, colored by a clinical variable when provided."),
-        tags$li(tags$strong("A matrix heatmap"), ": component activity per sample."),
-        tags$li(tags$strong("Source distributions"), ": weight distribution and top genes of each metagene."),
-        tags$li(tags$strong("Stability index"), ": reproducibility of each component."),
-        tags$li(tags$strong("Component correlation"), ": correlation between component activities."),
+        tags$li(tags$strong("Scatter with marginals"), ": two metagene activities with stacked marginal histograms, colored by a categorical clinical variable when provided."),
+        tags$li(tags$strong("Activity heatmap"), ": metagene activity per sample."),
+        tags$li(tags$strong("Metagene gene weights"), ": gene-weight distribution and top genes of each metagene."),
+        tags$li(tags$strong("Stability index"), ": reproducibility of each metagene."),
+        tags$li(tags$strong("Metagene correlation"), ": correlation between metagene activities."),
         tags$li(tags$strong("Clinical association"), ": one heatmap per variable type - Spearman correlation for continuous variables, and -log10(p) (Mann-Whitney / Kruskal-Wallis) for categorical variables, with significance stars."),
-        tags$li(tags$strong("Matrices"), ": the A and S tables (also saved to disk).")
+        tags$li(tags$strong("Matrices"), ": the A (gene weights) and S (sample activities) tables (also saved to disk).")
       ),
 
       tags$h4("Practical Notes"),

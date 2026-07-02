@@ -37,6 +37,13 @@ fi
 # --- Open the browser shortly after the app starts --------------------------
 ( sleep 4; open "http://localhost:${PORT}/" ) &
 
+# External drives on macOS are mounted under /Volumes. Binding it makes every
+# drive browsable in the app as /mounts/<DriveName> (see build_shiny_roots()).
+VOLUMES_MOUNT=()
+if [ -d /Volumes ]; then
+  VOLUMES_MOUNT=(--mount type=bind,source=/Volumes,target=/mounts)
+fi
+
 # --- Run the app ------------------------------------------------------------
 # --platform linux/amd64 forces Rosetta emulation on Apple Silicon (M1/M2/M3);
 # it is a no-op on Intel Macs. The image is built for amd64 only.
@@ -49,4 +56,5 @@ docker run --rm -p ${PORT}:${PORT} \
   -e SHINY_N_CORES=${CORES} \
   --mount type=bind,source="${BROWSE_DIR}",target=/browse \
   --mount type=bind,source="${OUT_DIR}",target=/out \
+  "${VOLUMES_MOUNT[@]}" \
   "${IMAGE}"

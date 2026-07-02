@@ -114,10 +114,9 @@ mod_ica_server <- function(id, roots = c(home = "~")) {
       read_delim_auto(input$bulk_file)
     })
 
-    clinic_df <- reactive({
-      req(input$clinic_file)
-      read_delim_auto(input$clinic_file)
-    })
+    .clinic_in <- clinic_input(reactive(input$clinic_file))
+    clinic_df   <- .clinic_in$df
+    clinic_note <- .clinic_in$message
 
     shinyFiles::shinyDirChoose(
       input, id = "output_dir", session = session,
@@ -215,6 +214,8 @@ mod_ica_server <- function(id, roots = c(home = "~")) {
     # ---- Logs ----
     output$logs <- renderPrint({
       msg <- character(0)
+      note <- clinic_note()
+      if (!is.null(note)) msg <- c(msg, note, "")
       if (isTruthy(input$run_mstd) && !is.null(tryCatch(mstd_res(), error = function(e) NULL))) {
         msg <- c(msg, "MSTD outputs:", paste0("  ", names(mstd_res())))
       }

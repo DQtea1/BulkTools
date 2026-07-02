@@ -95,9 +95,9 @@ mod_anchored_gsea_server <- function(id, roots = c(home = "~")) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    clinic_df <- reactive({
-      read_delim_auto(input$clinic_file)
-    })
+    .clinic_in <- clinic_input(reactive(input$clinic_file))
+    clinic_df   <- .clinic_in$df
+    clinic_note <- .clinic_in$message
 
     bulk_df <- reactive({
       read_delim_auto(input$bulk_file)
@@ -302,8 +302,14 @@ mod_anchored_gsea_server <- function(id, roots = c(home = "~")) {
 
     # outputs
     output$logs <- renderPrint({
-      req(anchored_gsea_res())
-      names(anchored_gsea_res())
+      note <- clinic_note()
+      if (!is.null(note)) cat(note, "\n\n")
+      res <- tryCatch(anchored_gsea_res(), error = function(e) NULL)
+      if (is.null(res)) {
+        if (is.null(note)) cat("Run the analysis to populate the logs.\n")
+      } else {
+        cat("Outputs:\n"); cat(paste0("  ", names(res)), sep = "\n")
+      }
     })
 
     output$top_GSEA <- DT::renderDT({

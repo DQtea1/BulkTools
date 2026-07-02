@@ -105,7 +105,9 @@ mod_signatures_comparison_server <- function(id, roots = c(home = "~")) {
     ns <- session$ns
     `%||%` <- function(a, b) if (is.null(a) || length(a) == 0) b else a
 
-    clinic_df <- reactive({ read_delim_auto(input$clinic_file) })
+    .clinic_in <- clinic_input(reactive(input$clinic_file))
+    clinic_df   <- .clinic_in$df
+    clinic_note <- .clinic_in$message
     bulk_df   <- reactive({ read_delim_auto(input$bulk_file) })
 
     clinic_modality_choices <- function(clinic_col) {
@@ -339,11 +341,16 @@ mod_signatures_comparison_server <- function(id, roots = c(home = "~")) {
 
     ## ---- Outputs ----
     output$logs <- renderPrint({
-      req(comparison_res())
-      res <- comparison_res()
-      cat("Signatures compared:", ncol(res$scores), "\n")
-      cat("Correlation subsets:", length(res$corr), "\n")
-      cat("Output:", res$output_path, "\n")
+      note <- clinic_note()
+      if (!is.null(note)) cat(note, "\n\n")
+      res <- tryCatch(comparison_res(), error = function(e) NULL)
+      if (is.null(res)) {
+        if (is.null(note)) cat("Run the analysis to populate the logs.\n")
+      } else {
+        cat("Signatures compared:", ncol(res$scores), "\n")
+        cat("Correlation subsets:", length(res$corr), "\n")
+        cat("Output:", res$output_path, "\n")
+      }
     })
 
     output$boxplot <- renderImage({

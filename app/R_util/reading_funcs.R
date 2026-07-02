@@ -63,6 +63,70 @@ ensure_clinic_sample_id_col <- function(clinic_annot, sample_id_col = "ID_Patien
 }
 
 
+# Drop clinic rows whose sample ID (ID_Patient column, or row names when that
+# column is absent) is missing/empty, instead of aborting the run. Returns the
+# filtered table plus a human-readable note (NULL when nothing was dropped) so
+# callers can surface it in the module Logs.
+drop_na_clinic_ids <- function(clinic_annot, sample_id_col = "ID_Patient") {
+  if (is.null(clinic_annot) || nrow(clinic_annot) == 0) {
+    return(list(clinic_annot = clinic_annot, n_dropped = 0L, message = NULL))
+  }
+
+  if (sample_id_col %in% colnames(clinic_annot)) {
+    ids <- clinic_annot[[sample_id_col]]
+    id_source <- sprintf("column '%s'", sample_id_col)
+  } else {
+    ids <- rownames(clinic_annot)
+    id_source <- "row names"
+  }
+
+  ids_chr <- trimws(as.character(ids))
+  bad <- is.na(ids) | is.na(ids_chr) | !nzchar(ids_chr) | toupper(ids_chr) == "NA"
+  n_dropped <- sum(bad)
+
+  if (n_dropped == 0) {
+    return(list(clinic_annot = clinic_annot, n_dropped = 0L, message = NULL))
+  }
+
+  kept <- clinic_annot[!bad, , drop = FALSE]
+  msg <- sprintf(
+    "[clinic] Dropped %d row(s) with missing/empty sample ID in %s; kept %d of %d samples.",
+    n_dropped, id_source, nrow(kept), nrow(clinic_annot)
+  )
+  list(clinic_annot = kept, n_dropped = n_dropped, message = msg)
+}
+
+
+# Reactive wrapper used by every module: reads the uploaded clinic file, drops
+# rows with missing sample IDs, shows a notification when it does, and exposes
+# both the cleaned data frame and the note (for the Logs tab). Must be called
+# inside a moduleServer (needs an active reactive domain).
+clinic_input <- function(file_reactive, sample_id_col = "ID_Patient", notify = TRUE) {
+  loaded <- shiny::reactive({
+    fi <- file_reactive()
+    shiny::req(fi)
+    drop_na_clinic_ids(read_delim_auto(fi), sample_id_col = sample_id_col)
+  })
+
+  if (isTRUE(notify)) {
+    shiny::observeEvent(loaded()$message, {
+      shiny::showNotification(loaded()$message, type = "warning", duration = 8)
+    }, ignoreNULL = TRUE)
+  }
+
+  list(
+    # df keeps the usual req() behaviour (blocks until a clinic file is present).
+    df = shiny::reactive(loaded()$clinic_annot),
+    # message is tolerant: NULL when no file yet, so it can be shown in Logs
+    # without blocking the rest of the output.
+    message = shiny::reactive({
+      res <- tryCatch(loaded(), error = function(e) NULL)
+      if (is.null(res)) NULL else res$message
+    })
+  )
+}
+
+
 normalize_clinic_filters <- function(clinic_filters) {
   if (is.null(clinic_filters) || length(clinic_filters) == 0) {
     return(NULL)

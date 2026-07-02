@@ -157,9 +157,9 @@ mod_signature_proj_server <- function(id, roots = c(home = "~")) {
     use_python("/opt/conda/envs/BulkTools/bin/python", required = TRUE)
     source_python("py/py_plots.py")
 
-    clinic_df <- reactive({
-      read_delim_auto(input$clinic_file)
-    })
+    .clinic_in <- clinic_input(reactive(input$clinic_file))
+    clinic_df   <- .clinic_in$df
+    clinic_note <- .clinic_in$message
 
     bulk_df <- reactive({
       read_delim_auto(input$bulk_file)
@@ -522,8 +522,14 @@ mod_signature_proj_server <- function(id, roots = c(home = "~")) {
     })
 
     output$logs <- renderPrint({
-      req(projection_res())
-      names(projection_res())
+      note <- clinic_note()
+      if (!is.null(note)) cat(note, "\n\n")
+      res <- tryCatch(projection_res(), error = function(e) NULL)
+      if (is.null(res)) {
+        if (is.null(note)) cat("Run the analysis to populate the logs.\n")
+      } else {
+        cat("Outputs:\n"); cat(paste0("  ", names(res)), sep = "\n")
+      }
     })
 
     output$projection <- renderImage({

@@ -7,7 +7,7 @@ signature_proj_pipe = function(rnafilt_counts, clinic_annot,
                                 filter_by_gene, keep_low_or_high, quantile_thr,
                                 survival_time_col = "delpfs", event_realization_col = "PFS",
                                 sample_ID_col = "ID_Patient", group_quantile = "median",
-                                do_km_plot = TRUE, extra_components = NULL,
+                                do_km_plot = TRUE, extra_components = NULL, do_vst = TRUE,
                                 progress_cb = NULL){
     library(reticulate)
 
@@ -59,9 +59,11 @@ signature_proj_pipe = function(rnafilt_counts, clinic_annot,
     clinic_annot   = filtered_data$clinic_annot
     output_DESeq   = filtered_data$output_path
 
-    report(0.3, "importing projected sample + VST normalization")
+    report(0.3, if (isTRUE(do_vst)) "importing projected sample + VST normalization"
+                else "importing projected sample (no VST)")
     prepared_data = prepare_projection(rnafilt_counts,
-                                       sample_to_project_path)
+                                       sample_to_project_path,
+                                       do_vst = do_vst)
 
     merged_bulks_vst = prepared_data$merged_bulks_vst
     ID_ref_samples   = prepared_data$ID_ref_samples

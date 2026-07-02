@@ -80,6 +80,7 @@ mod_signature_proj_ui <- function(id) {
           ),
           accordion_panel(
             "Parameters *",
+            checkboxInput(ns("do_vst"), "VST-normalize (normVST_bulk)", value = TRUE),
             selectInput(
               ns("contrast"), "Contrast :",
               choices = character(0),
@@ -512,6 +513,7 @@ mod_signature_proj_server <- function(id, roots = c(home = "~")) {
           keep_low_or_high       = input$low_or_high_proj,
           quantile_thr           = input$quantile_proj,
           extra_components       = extra_components(),
+          do_vst                 = isTRUE(input$do_vst),
           progress_cb            = function(frac, detail) {
             setProgress(value = frac, detail = detail)
           }

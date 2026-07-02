@@ -73,6 +73,7 @@ mod_signatures_comparison_ui <- function(id) {
 
         accordion_panel(
           "Parameters",
+          checkboxInput(ns("do_vst"), "VST-normalize (normVST_bulk)", value = TRUE),
           selectInput(ns("corr_method"), "Correlation test :",
                       choices = c("spearman", "pearson", "kendall"),
                       selected = "spearman", multiple = FALSE, selectize = FALSE, size = 3),
@@ -332,6 +333,7 @@ mod_signatures_comparison_server <- function(id, roots = c(home = "~")) {
           clinic_filters          = clinic_filters(),
           corr_method             = input$corr_method,
           corr_fdr                = isTRUE(input$corr_fdr),
+          do_vst                  = isTRUE(input$do_vst),
           progress_cb             = function(frac, detail) setProgress(value = frac, detail = detail)
         )
         setProgress(value = 1, detail = "done")

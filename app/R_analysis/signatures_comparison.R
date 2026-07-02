@@ -12,7 +12,7 @@ signatures_comparison_pipe <- function(rnafilt_counts, clinic_annot, output_dir,
                                         responder_label = "R", nonresponder_label = "NR",
                                         clinic_filters = NULL,
                                         corr_method = "spearman", corr_fdr = FALSE,
-                                        sample_ID_col = "ID_Patient",
+                                        sample_ID_col = "ID_Patient", do_vst = TRUE,
                                         progress_cb = NULL) {
   library(reticulate)
 
@@ -53,9 +53,13 @@ signatures_comparison_pipe <- function(rnafilt_counts, clinic_annot, output_dir,
     }
   }
 
-  ## ---- VST normalization + sample alignment ----
-  report(0.3, "VST normalization")
-  vst <- normVST_bulk(round(rnafilt_counts))
+  ## ---- (optional) VST normalization + sample alignment ----
+  report(0.3, if (isTRUE(do_vst)) "VST normalization" else "using bulk as-is (no VST)")
+  if (isTRUE(do_vst)) {
+    vst <- normVST_bulk(round(rnafilt_counts))
+  } else {
+    vst <- as.matrix(rnafilt_counts)
+  }
 
   ids <- intersect(clinic_annot$ID_Patient, colnames(vst))
   if (length(ids) == 0) {

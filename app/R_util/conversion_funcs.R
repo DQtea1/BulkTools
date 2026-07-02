@@ -45,7 +45,7 @@ normVST_bulk <- function(rnaseq) {
 }
 
 
-prepare_projection <- function(ref_bulk, sample_to_proj_filepath){
+prepare_projection <- function(ref_bulk, sample_to_proj_filepath, do_vst = TRUE){
   library(tximport)
   samples <- data.frame(ID_Patient = "Studied_sample",
                         filepath = sample_to_proj_filepath,
@@ -80,9 +80,14 @@ prepare_projection <- function(ref_bulk, sample_to_proj_filepath){
 
   merged_bulks_counts <- cbind(ref_sub, Studied_sample = proj_vec)
 
-  merged_bulks_vst <- normVST_bulk(round(merged_bulks_counts))
+  # VST-normalize jointly, unless the caller opted out (raw merged counts).
+  if (isTRUE(do_vst)) {
+    merged_bulks_vst <- normVST_bulk(round(merged_bulks_counts))
+  } else {
+    merged_bulks_vst <- as.matrix(merged_bulks_counts)
+  }
 
-  return(list(merged_bulks_vst = merged_bulks_vst, 
+  return(list(merged_bulks_vst = merged_bulks_vst,
               ID_ref_samples = ID_ref_samples, 
               sample_name = names(bulk_file)))
 }

@@ -6,8 +6,7 @@
 
 signatures_comparison_pipe <- function(rnafilt_counts, clinic_annot, output_dir,
                                         signatures,
-                                        cond1_col, cond1_modalities, cond1_name = "Condition1",
-                                        cond2_col, cond2_modalities, cond2_name = "Condition2",
+                                        conditions,
                                         response_col, responder_modalities, nonresponder_modalities,
                                         responder_label = "R", nonresponder_label = "NR",
                                         clinic_filters = NULL,

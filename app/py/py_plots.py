@@ -1040,13 +1040,10 @@ def myROC_AUC_v2(
 # =====================================================================
 
 def plot_signatures_by_condition(
-    cond1_scores: pd.DataFrame,
-    cond2_scores: pd.DataFrame,
-    meta1: pd.DataFrame,
-    meta2: pd.DataFrame,
+    cond_scores,
+    cond_metas,
+    cond_names,
     response_col: str,
-    cond1_name: str = "Condition1",
-    cond2_name: str = "Condition2",
     responder_label: str = "R",
     nonresponder_label: str = "NR",
     figsize=None,
@@ -1056,15 +1053,23 @@ def plot_signatures_by_condition(
 ):
     """Boxplots of every signature side by side, split by condition and response,
     with a Mann-Whitney (Wilcoxon rank-sum) test R vs NR per signature/condition.
+    Accepts an arbitrary number of conditions (cond_scores / cond_metas are lists
+    of per-condition data frames, cond_names their labels).
     Returns (long_df, stats_df, fig, ax)."""
     rng = np.random.default_rng(random_state)
+    cond_names = [str(c) for c in cond_names]
+    n_cond = len(cond_names)
+    if n_cond == 0:
+        raise ValueError("At least one condition is required.")
 
-    common_signatures = [c for c in cond1_scores.columns if c in cond2_scores.columns]
+    # Signatures present in every condition.
+    common_signatures = list(cond_scores[0].columns)
+    for sdf in cond_scores[1:]:
+        common_signatures = [c for c in common_signatures if c in sdf.columns]
     if len(common_signatures) == 0:
-        raise ValueError("No signature shared between the two conditions.")
+        raise ValueError("No signature shared across all conditions.")
 
-    cond1_scores = cond1_scores.loc[:, common_signatures].copy()
-    cond2_scores = cond2_scores.loc[:, common_signatures].copy()
+    cond_scores = [sdf.loc[:, common_signatures].copy() for sdf in cond_scores]
 
     def normalize_response(x):
         if pd.isna(x):
@@ -1095,21 +1100,20 @@ def plot_signatures_by_condition(
         df["condition"] = condition_name
         return df
 
-    long_df = pd.concat([
-        build_long(cond1_scores, meta1, cond1_name),
-        build_long(cond2_scores, meta2, cond2_name),
-    ], ignore_index=True)
+    long_df = pd.concat(
+        [build_long(cond_scores[i], cond_metas[i], cond_names[i]) for i in range(n_cond)],
+        ignore_index=True)
     long_df = long_df.dropna(subset=["score", "response"]).copy()
     long_df = long_df[long_df["response"].isin([responder_label, nonresponder_label])].copy()
 
-    group_order = [
-        (cond1_name, responder_label), (cond1_name, nonresponder_label),
-        (cond2_name, responder_label), (cond2_name, nonresponder_label),
-    ]
+    group_order = []
+    for cn in cond_names:
+        group_order.append((cn, responder_label))
+        group_order.append((cn, nonresponder_label))
 
     stats_rows = []
     for sig in common_signatures:
-        for cond_name in [cond1_name, cond2_name]:
+        for cond_name in cond_names:
             sub = long_df[(long_df["signature"] == sig) & (long_df["condition"] == cond_name)]
             x = sub.loc[sub["response"] == responder_label, "score"].dropna().values
             y = sub.loc[sub["response"] == nonresponder_label, "score"].dropna().values
@@ -1127,7 +1131,7 @@ def plot_signatures_by_condition(
 
     n_sig = len(common_signatures)
     if figsize is None:
-        figsize = (max(12, n_sig * 3.2), 7)
+        figsize = (max(12, n_sig * n_cond * 1.7), 7)
     fig, ax = plt.subplots(figsize=figsize)
     colors = {responder_label: "#1F30C9", nonresponder_label: "#F82408"}
 
@@ -1187,7 +1191,8 @@ def plot_signatures_by_condition(
     ax.set_xticklabels(xtick_labels, rotation=45, ha="right")
     ax.set_ylabel("Signature score")
     ax.set_title("Signature scores by condition and response status")
-    ax.set_ylim(y_min - 0.05 * y_range, y_max + 0.28 * y_range)
+    # leave room for the stacked p-value bars (one per condition, per signature)
+    ax.set_ylim(y_min - 0.05 * y_range, y_max + (0.08 * n_cond + 0.15) * y_range)
     ax.grid(axis="y", linestyle="--", alpha=0.4)
     legend_handles = [
         plt.Line2D([0], [0], marker="s", color="w", label=responder_label,
@@ -1339,13 +1344,14 @@ def plot_signature_rocs(cond_map, signatures, responder_label, nonresponder_labe
     return save_path
 
 
-def run_signatures_comparison(cond1_scores, cond2_scores, meta1, meta2,
+def run_signatures_comparison(cond_scores, cond_metas, cond_names,
                               response_col="response",
-                              cond1_name="Condition1", cond2_name="Condition2",
                               responder_label="R", nonresponder_label="NR",
                               corr_method="spearman", corr_fdr=False,
                               out_dir="."):
-    """Orchestrates the three Signatures-comparison panels and saves the PNGs.
+    """Orchestrates the three Signatures-comparison panels for an arbitrary number
+    of conditions and saves the PNGs. cond_scores / cond_metas are lists of the
+    per-condition score / metadata frames, cond_names their labels.
     Returns a dict with the saved paths, the per-subset correlation paths, and
     the Mann-Whitney stats table."""
     import os
@@ -1358,42 +1364,42 @@ def run_signatures_comparison(cond1_scores, cond2_scores, meta1, meta2,
         arr = np.array(df.values, copy=True)
         return pd.DataFrame(arr, index=list(df.index), columns=list(df.columns))
 
-    cond1_scores = _writable_df(cond1_scores)
-    cond2_scores = _writable_df(cond2_scores)
-    meta1 = _writable_df(meta1)
-    meta2 = _writable_df(meta2)
+    cond_names = [str(c) for c in cond_names]
+    cond_scores = [_writable_df(s) for s in cond_scores]
+    cond_metas = [_writable_df(m) for m in cond_metas]
+    n_cond = len(cond_names)
 
     # --- Panel 1: boxplots + Wilcoxon ---
     long_df, stats_df, fig, _ = plot_signatures_by_condition(
-        cond1_scores, cond2_scores, meta1, meta2,
-        response_col=response_col, cond1_name=cond1_name, cond2_name=cond2_name,
+        cond_scores, cond_metas, cond_names,
+        response_col=response_col,
         responder_label=responder_label, nonresponder_label=nonresponder_label)
     box_path = os.path.join(out_dir, "signatures_boxplots.png")
     fig.savefig(box_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
-    common_sigs = [c for c in cond1_scores.columns if c in cond2_scores.columns]
-    s1 = cond1_scores[common_sigs]
-    s2 = cond2_scores[common_sigs]
-    r1 = meta1[response_col].astype(str)
-    r2 = meta2[response_col].astype(str)
+    # Signatures shared by every condition.
+    common_sigs = list(cond_scores[0].columns)
+    for s in cond_scores[1:]:
+        common_sigs = [c for c in common_sigs if c in s.columns]
 
-    c1_R = s1.loc[r1 == responder_label]
-    c1_NR = s1.loc[r1 == nonresponder_label]
-    c2_R = s2.loc[r2 == responder_label]
-    c2_NR = s2.loc[r2 == nonresponder_label]
+    s_list = [s[common_sigs] for s in cond_scores]
+    r_list = [m[response_col].astype(str) for m in cond_metas]
 
-    subsets = {
-        f"{cond1_name}-{responder_label}": c1_R,
-        f"{cond1_name}-{nonresponder_label}": c1_NR,
-        f"{cond2_name}-{responder_label}": c2_R,
-        f"{cond2_name}-{nonresponder_label}": c2_NR,
-        f"{cond1_name} (all)": pd.concat([c1_R, c1_NR]),
-        f"{cond2_name} (all)": pd.concat([c2_R, c2_NR]),
-        f"All {responder_label}": pd.concat([c1_R, c2_R]),
-        f"All {nonresponder_label}": pd.concat([c1_NR, c2_NR]),
-        "All samples": pd.concat([c1_R, c1_NR, c2_R, c2_NR]),
-    }
+    # --- Panel 2: correlation matrices over each subset ---
+    # per condition x response, then per condition (all), then aggregates.
+    per_cond_R = [s_list[i].loc[r_list[i] == responder_label] for i in range(n_cond)]
+    per_cond_NR = [s_list[i].loc[r_list[i] == nonresponder_label] for i in range(n_cond)]
+
+    subsets = {}
+    for i, cn in enumerate(cond_names):
+        subsets[f"{cn}-{responder_label}"] = per_cond_R[i]
+        subsets[f"{cn}-{nonresponder_label}"] = per_cond_NR[i]
+    for i, cn in enumerate(cond_names):
+        subsets[f"{cn} (all)"] = pd.concat([per_cond_R[i], per_cond_NR[i]])
+    subsets[f"All {responder_label}"] = pd.concat(per_cond_R)
+    subsets[f"All {nonresponder_label}"] = pd.concat(per_cond_NR)
+    subsets["All samples"] = pd.concat(per_cond_R + per_cond_NR)
 
     corr_dir = os.path.join(out_dir, "correlations")
     os.makedirs(corr_dir, exist_ok=True)
@@ -1412,7 +1418,7 @@ def run_signatures_comparison(cond1_scores, cond2_scores, meta1, meta2,
     # --- Panel 3: ROC grid ---
     roc_path = os.path.join(out_dir, "signature_rocs.png")
     plot_signature_rocs(
-        {cond1_name: (s1, r1), cond2_name: (s2, r2)},
+        {cond_names[i]: (s_list[i], r_list[i]) for i in range(n_cond)},
         common_sigs, responder_label, nonresponder_label, roc_path)
 
     return {

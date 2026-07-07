@@ -8,13 +8,18 @@
 read_delim_auto <- function(fileinfo) {
   shiny::req(fileinfo)
   ext <- tolower(tools::file_ext(fileinfo$name))
-  if (ext == "csv") {
+  df <- if (ext == "csv") {
     read.csv(fileinfo$datapath, row.names = 1, check.names = FALSE)
   } else if (ext %in% c("tsv", "txt")) {
     read.delim(fileinfo$datapath, row.names = 1, check.names = FALSE)
   } else {
     stop("Unsupported file type: ", ext)
   }
+  # Trim stray whitespace from column names so sample-ID matching between the
+  # bulk matrix (sample columns) and the clinic table is robust to spaces that
+  # slip into file headers and are invisible when eyeballing the data.
+  if (!is.null(colnames(df))) colnames(df) <- trimws(colnames(df))
+  df
 }
 
 

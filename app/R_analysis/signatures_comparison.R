@@ -1,8 +1,9 @@
-# Compares several signatures across two user-defined sample conditions:
+# Compares several signatures across any number of user-defined sample conditions:
 #   - boxplots of every signature, split by condition + response, with Wilcoxon
-#   - 9 correlation matrices between signatures over each condition/response subset
+#   - correlation matrices between signatures over each condition/response subset
 #   - ROC curves per signature and condition
-# Scores are computed on VST-normalized bulk, like the Signature Projection module.
+# Scores are computed on (optionally VST-normalized) bulk, like Signature Projection.
+# `conditions` is a list of list(name=, col=, modalities=) entries.
 
 signatures_comparison_pipe <- function(rnafilt_counts, clinic_annot, output_dir,
                                         signatures,
@@ -27,10 +28,11 @@ signatures_comparison_pipe <- function(rnafilt_counts, clinic_annot, output_dir,
   if (is.null(signatures) || length(signatures) == 0) {
     stop("Select at least one signature or gene to compare.")
   }
-  for (col in c(cond1_col, cond2_col, response_col)) {
-    if (is.null(col) || length(col) != 1 || !nzchar(col)) {
-      stop("Condition columns and the response column must each be a single selected column.")
-    }
+  if (is.null(conditions) || length(conditions) == 0) {
+    stop("Define at least one condition.")
+  }
+  if (is.null(response_col) || length(response_col) != 1 || !nzchar(response_col)) {
+    stop("The response column must be a single selected column.")
   }
 
   ## ---- Optional global clinic filtering ----
@@ -46,10 +48,8 @@ signatures_comparison_pipe <- function(rnafilt_counts, clinic_annot, output_dir,
   clinic_annot   <- ensure_clinic_sample_id_col(filtered$clinic_annot)
   output_path    <- filtered$output_path
 
-  for (col in c(cond1_col, cond2_col, response_col)) {
-    if (!col %in% colnames(clinic_annot)) {
-      stop(sprintf("Column '%s' not found in clinic_annot.", col))
-    }
+  if (!response_col %in% colnames(clinic_annot)) {
+    stop(sprintf("Column '%s' not found in clinic_annot.", response_col))
   }
 
   ## ---- (optional) VST normalization + sample alignment ----
@@ -60,9 +60,32 @@ signatures_comparison_pipe <- function(rnafilt_counts, clinic_annot, output_dir,
     vst <- as.matrix(rnafilt_counts)
   }
 
-  ids <- intersect(clinic_annot$ID_Patient, colnames(vst))
+  # Trim IDs on both sides (whitespace is a common cause of a false mismatch) and
+  # write them back so the subsequent match()/subset use the same trimmed values.
+  clinic_annot$ID_Patient <- trimws(as.character(clinic_annot$ID_Patient))
+  colnames(vst)           <- trimws(as.character(colnames(vst)))
+  clinic_ids_all <- clinic_annot$ID_Patient
+  bulk_ids_all   <- colnames(vst)
+  ids <- intersect(clinic_ids_all, bulk_ids_all)
   if (length(ids) == 0) {
-    stop("No sample shared between clinic_annot and the bulk matrix after filtering.")
+    stop(sprintf(
+      paste0(
+        "No sample shared between clinic_annot and the bulk matrix after filtering.\n",
+        "--- DIAGNOSTIC ---\n",
+        "clinic rows (after NA-ID + clinic filters) : %d\n",
+        "bulk samples (columns)                     : %d\n",
+        "clinic ID_Patient (first 5)                : %s\n",
+        "bulk column names (first 5)                : %s\n",
+        "------------------\n",
+        "Common causes: (a) the clinic sample IDs are in a different column than the ",
+        "bulk column names, (b) an ID-type mismatch (whitespace, case, separators, ",
+        "prefix/suffix), (c) the global clinic filter or NA-ID drop removed every matching sample."
+      ),
+      length(clinic_ids_all),
+      length(bulk_ids_all),
+      paste(head(clinic_ids_all, 5), collapse = ", "),
+      paste(head(bulk_ids_all, 5), collapse = ", ")
+    ))
   }
   clinic_annot <- clinic_annot[match(ids, clinic_annot$ID_Patient), , drop = FALSE]
   vst <- vst[, ids, drop = FALSE]
@@ -77,19 +100,10 @@ signatures_comparison_pipe <- function(rnafilt_counts, clinic_annot, output_dir,
   scores_df <- as.data.frame(score_cols, check.names = FALSE)
   rownames(scores_df) <- ids
 
-  ## ---- Define conditions and response membership ----
+  ## ---- Response membership ----
   trim_chr <- function(x) trimws(as.character(x))
 
-  cond1_vals <- trim_chr(clinic_annot[[cond1_col]])
-  cond2_vals <- trim_chr(clinic_annot[[cond2_col]])
-  resp_vals  <- trim_chr(clinic_annot[[response_col]])
-
-  cond1_ids <- ids[cond1_vals %in% trim_chr(cond1_modalities)]
-  cond2_ids <- ids[cond2_vals %in% trim_chr(cond2_modalities)]
-
-  if (length(cond1_ids) == 0) stop(sprintf("Condition 1 (%s) matched no sample.", cond1_name))
-  if (length(cond2_ids) == 0) stop(sprintf("Condition 2 (%s) matched no sample.", cond2_name))
-
+  resp_vals   <- trim_chr(clinic_annot[[response_col]])
   resp_ids    <- ids[resp_vals %in% trim_chr(responder_modalities)]
   nonresp_ids <- ids[resp_vals %in% trim_chr(nonresponder_modalities)]
 
@@ -100,32 +114,58 @@ signatures_comparison_pipe <- function(rnafilt_counts, clinic_annot, output_dir,
     out
   }
 
-  cond1_scores <- scores_df[cond1_ids, , drop = FALSE]
-  cond2_scores <- scores_df[cond2_ids, , drop = FALSE]
-  meta1 <- data.frame(response = map_response(cond1_ids), row.names = cond1_ids,
-                      stringsAsFactors = FALSE)
-  meta2 <- data.frame(response = map_response(cond2_ids), row.names = cond2_ids,
-                      stringsAsFactors = FALSE)
+  ## ---- Build one score/meta subset per condition (any number) ----
+  cond_names       <- character(0)
+  cond_scores_list <- list()
+  cond_meta_list   <- list()
+  n_labeled_total  <- 0
 
-  if (sum(!is.na(meta1$response)) == 0 && sum(!is.na(meta2$response)) == 0) {
+  for (k in seq_along(conditions)) {
+    cnd   <- conditions[[k]]
+    cname <- if (!is.null(cnd$name) && nzchar(cnd$name)) as.character(cnd$name) else paste0("Condition", k)
+    ccol  <- cnd$col
+    cmods <- cnd$modalities
+
+    if (is.null(ccol) || length(ccol) != 1 || !nzchar(ccol)) {
+      stop(sprintf("Condition '%s' has no column selected.", cname))
+    }
+    if (!ccol %in% colnames(clinic_annot)) {
+      stop(sprintf("Condition column '%s' not found in clinic_annot.", ccol))
+    }
+
+    cvals <- trim_chr(clinic_annot[[ccol]])
+    cids  <- ids[cvals %in% trim_chr(cmods)]
+    if (length(cids) == 0) {
+      stop(sprintf("Condition '%s' matched no sample.", cname))
+    }
+
+    meta_k <- data.frame(response = map_response(cids), row.names = cids,
+                         stringsAsFactors = FALSE)
+    n_labeled_total <- n_labeled_total + sum(!is.na(meta_k$response))
+
+    cond_names            <- c(cond_names, cname)
+    cond_scores_list[[k]] <- scores_df[cids, , drop = FALSE]
+    cond_meta_list[[k]]   <- meta_k
+  }
+
+  cond_names <- make.unique(cond_names)  # keep condition labels unique for the plots
+
+  if (n_labeled_total == 0) {
     stop("No sample carries a responder / non-responder label after mapping; check the response column and modalities.")
   }
 
   ## ---- Run the Python panels ----
   report(0.7, "building boxplots, correlation matrices and ROC curves")
   res <- run_signatures_comparison(
-    cond1_scores      = cond1_scores,
-    cond2_scores      = cond2_scores,
-    meta1             = meta1,
-    meta2             = meta2,
-    response_col      = "response",
-    cond1_name        = cond1_name,
-    cond2_name        = cond2_name,
-    responder_label   = responder_label,
+    cond_scores        = cond_scores_list,
+    cond_metas         = cond_meta_list,
+    cond_names         = as.list(cond_names),
+    response_col       = "response",
+    responder_label    = responder_label,
     nonresponder_label = nonresponder_label,
-    corr_method       = corr_method,
-    corr_fdr          = corr_fdr,
-    out_dir           = output_path
+    corr_method        = corr_method,
+    corr_fdr           = corr_fdr,
+    out_dir            = output_path
   )
 
   report(0.95, "finalizing")

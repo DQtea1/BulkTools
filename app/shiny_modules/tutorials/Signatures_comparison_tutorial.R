@@ -34,7 +34,7 @@ signatures_comparison_tutorial_card <- function() {
           tags$strong("Filter on clinic & define conditions"),
           tags$ul(
             tags$li(tags$strong("Global clinical filters"), ": optional pre-filter applied to every sample before anything else (use the ", tags$code("+"), " button; multiple modalities in a row are OR, multiple rows are AND)."),
-            tags$li(tags$strong("Condition 1 / Condition 2"), ": each is a sample group. Give it a name, pick a clinical column, then pick the modalities that define the group. The two conditions are independent (e.g. two cohorts, two treatments, pre vs post)."),
+            tags$li(tags$strong("Conditions"), ": one condition by default; click the ", tags$code("+"), " button to add as many as you want (trash icon to remove; at least one is kept). Each condition is a sample group: give it a name, pick a clinical column, then pick the modalities that define the group. Conditions are independent (e.g. cohorts, treatments, pre vs post)."),
             tags$li(tags$strong("Response column"), ": the clinical column holding the outcome, then select which of its modalities count as ", tags$strong("responders"), " and which as ", tags$strong("non-responders"), ".")
           )
         ),
@@ -56,7 +56,7 @@ signatures_comparison_tutorial_card <- function() {
         tags$li(
           tags$strong("Run comparison"),
           tags$ul(
-            tags$li("Click once the files, both conditions, the response split and at least one signature are filled.")
+            tags$li("Click once the files, at least one condition, the response split and at least one signature are filled.")
           )
         )
       ),
@@ -64,7 +64,7 @@ signatures_comparison_tutorial_card <- function() {
       tags$h4("Outputs In The App"),
       tags$ul(
         tags$li(tags$strong("Boxplots"), ": every signature side by side, split by condition and response status, with the Wilcoxon p-value comparing responders vs non-responders."),
-        tags$li(tags$strong("Correlations"), ": 9 sub-tabs, each a correlation matrix between signatures over a sample subset — ", tags$code("Cond1-R"), ", ", tags$code("Cond1-NR"), ", ", tags$code("Cond2-R"), ", ", tags$code("Cond2-NR"), ", each condition as a whole, all responders, all non-responders, and all samples. Stars: *** p<0.001, ** p<0.01, * p<0.05."),
+        tags$li(tags$strong("Correlations"), ": one sub-tab per sample subset, each a correlation matrix between signatures — for every condition its responders, non-responders and whole group, plus all responders, all non-responders and all samples (", tags$code("3 x n_conditions + 3"), " subsets). Stars: *** p<0.001, ** p<0.01, * p<0.05."),
         tags$li(tags$strong("ROC curves"), ": a grid (one row per condition, one column per signature) showing each signature's ROC and AUC for separating responders from non-responders."),
         tags$li(tags$strong("Wilcoxon stats"), ": the full table of Mann-Whitney statistics and p-values per signature and condition.")
       ),

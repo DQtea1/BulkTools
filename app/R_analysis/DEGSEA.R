@@ -296,13 +296,29 @@ DEGSEA_pipe <- function(rnafilt_counts, clinic_annot, control_filters, test_filt
     clinic_annot = ensure_clinic_sample_id_col(filtered_data$clinic_annot)
     output_DESeq = filtered_data$output_path
     filter_suffix = basename(dirname(output_DESeq))
+    # clinic ID_Patient is already trimmed (ensure_clinic_sample_id_col) and bulk
+    # column names are trimmed at read time; matching is therefore whitespace-safe.
     available_sample_ids = intersect(clinic_annot$ID_Patient, colnames(rnafilt_counts))
 
     if (length(available_sample_ids) == 0) {
-        stop(
-            "The global clinic/gene filtering step removed all samples before the control/test groups were defined.\n",
-            "Adjust the filters in 'Filtering on clinic' or 'Filtering on gene'."
-        )
+        stop(sprintf(
+            paste0(
+                "The global clinic/gene filtering step removed all matching samples ",
+                "before the control/test groups were defined.\n",
+                "--- DIAGNOSTIC ---\n",
+                "clinic rows (after NA-ID drop + global filters) : %d\n",
+                "bulk samples (columns)                          : %d\n",
+                "clinic ID_Patient (first 5)                     : %s\n",
+                "bulk column names (first 5)                     : %s\n",
+                "------------------\n",
+                "If both counts are > 0 but the overlap is 0, the IDs differ (type, case, ",
+                "separators or a different ID column). If clinic rows is 0, the ",
+                "'Filtering on clinic' / 'Filtering on gene' step (or the NA-ID drop) removed everything."
+            ),
+            nrow(clinic_annot), ncol(rnafilt_counts),
+            paste(head(as.character(clinic_annot$ID_Patient), 5), collapse = ", "),
+            paste(head(colnames(rnafilt_counts), 5), collapse = ", ")
+        ))
     }
     
     incProgress(0.25)

@@ -29,20 +29,13 @@ mod_signatures_comparison_ui <- function(id) {
           uiOutput(ns("clinic_filters_ui")),
 
           tags$hr(),
-          tags$strong("Condition 1"),
-          textInput(ns("cond1_name"), "Name :", value = "Condition1"),
-          selectInput(ns("cond1_col"), "Column :", choices = character(0),
-                      multiple = FALSE, selectize = FALSE, size = 5),
-          selectInput(ns("cond1_modalities"), "Modalities :", choices = character(0),
-                      multiple = TRUE, selectize = FALSE, size = 5),
-
-          tags$hr(),
-          tags$strong("Condition 2"),
-          textInput(ns("cond2_name"), "Name :", value = "Condition2"),
-          selectInput(ns("cond2_col"), "Column :", choices = character(0),
-                      multiple = FALSE, selectize = FALSE, size = 5),
-          selectInput(ns("cond2_modalities"), "Modalities :", choices = character(0),
-                      multiple = TRUE, selectize = FALSE, size = 5),
+          div(
+            class = "d-flex justify-content-between align-items-center mb-2",
+            tags$strong("Conditions"),
+            actionButton(ns("add_condition"), label = NULL, icon = icon("plus"),
+                         class = "btn btn-sm btn-outline-primary")
+          ),
+          uiOutput(ns("conditions_ui")),
 
           tags$hr(),
           tags$strong("Response"),
@@ -193,26 +186,107 @@ mod_signatures_comparison_server <- function(id, roots = c(home = "~")) {
       })
     })
 
-    ## ---- Populate condition / response columns when clinic loads ----
+    ## ---- Populate response column when clinic loads ----
     observeEvent(input$clinic_file, {
       req(clinic_df())
-      cols <- names(clinic_df())
-      updateSelectInput(session, "cond1_col",   choices = cols, selected = "")
-      updateSelectInput(session, "cond2_col",   choices = cols, selected = "")
-      updateSelectInput(session, "response_col", choices = cols, selected = "")
+      updateSelectInput(session, "response_col", choices = names(clinic_df()), selected = "")
       clinic_filter_state$ids <- integer()
     })
 
-    observeEvent(input$cond1_col, {
-      req(input$cond1_col)
-      updateSelectInput(session, "cond1_modalities",
-                        choices = clinic_modality_choices(input$cond1_col), selected = character(0))
-    }, ignoreInit = TRUE)
-    observeEvent(input$cond2_col, {
-      req(input$cond2_col)
-      updateSelectInput(session, "cond2_modalities",
-                        choices = clinic_modality_choices(input$cond2_col), selected = character(0))
-    }, ignoreInit = TRUE)
+    ## ---- Conditions: dynamic list (>= 1), "+" to add ----
+    cond_state <- reactiveValues(ids = integer(), next_id = 0)
+
+    output$conditions_ui <- renderUI({
+      clinic_cols <- if (isTruthy(input$clinic_file)) names(clinic_df()) else character(0)
+      if (length(cond_state$ids) == 0) {
+        return(tags$p(class = "text-muted mb-0", "No condition added yet."))
+      }
+      tagList(lapply(seq_along(cond_state$ids), function(k) {
+        cid       <- cond_state$ids[k]
+        name_id   <- paste0("cond_name_", cid)
+        col_id    <- paste0("cond_col_", cid)
+        mod_id    <- paste0("cond_modalities_", cid)
+        remove_id <- paste0("remove_cond_", cid)
+
+        selected_col  <- isolate(input[[col_id]])
+        selected_name <- isolate(input[[name_id]])
+        if (is.null(selected_name) || !nzchar(selected_name)) selected_name <- paste0("Condition", k)
+        modality_choices <- if (!is.null(selected_col) && nzchar(selected_col)) {
+          clinic_modality_choices(selected_col)
+        } else character(0)
+        selected_mods <- isolate(input[[mod_id]])
+        selected_mods <- selected_mods[selected_mods %in% modality_choices]
+
+        div(
+          class = "border rounded p-3 mb-2",
+          tags$strong(paste("Condition", k)),
+          textInput(ns(name_id), "Name :", value = selected_name),
+          selectInput(ns(col_id), "Column :", choices = clinic_cols, selected = selected_col,
+                      multiple = FALSE, selectize = FALSE, size = 5),
+          selectInput(ns(mod_id), "Modalities :", choices = modality_choices,
+                      selected = selected_mods, multiple = TRUE, selectize = FALSE, size = 5),
+          div(class = "d-flex justify-content-end",
+              actionButton(ns(remove_id), label = NULL, icon = icon("trash"),
+                           class = "btn btn-sm btn-outline-danger"))
+        )
+      }))
+    })
+
+    register_condition <- function(cid) {
+      local({
+        current_cid <- cid
+        current_col <- paste0("cond_col_", current_cid)
+        current_mod <- paste0("cond_modalities_", current_cid)
+        current_rm  <- paste0("remove_cond_", current_cid)
+        observeEvent(input[[current_col]], {
+          selected_col <- input[[current_col]]
+          modality_choices <- if (!is.null(selected_col) && nzchar(selected_col)) {
+            clinic_modality_choices(selected_col)
+          } else character(0)
+          selected_mods <- input[[current_mod]]
+          selected_mods <- selected_mods[selected_mods %in% modality_choices]
+          updateSelectInput(session, current_mod, choices = modality_choices,
+                            selected = selected_mods)
+        }, ignoreInit = TRUE)
+        observeEvent(input[[current_rm]], {
+          if (length(cond_state$ids) > 1) {
+            cond_state$ids <- setdiff(cond_state$ids, current_cid)
+          }
+        }, ignoreInit = TRUE)
+      })
+    }
+
+    add_condition <- function() {
+      cid <- cond_state$next_id + 1
+      cond_state$next_id <- cid
+      cond_state$ids <- c(cond_state$ids, cid)
+      register_condition(cid)
+    }
+
+    observeEvent(input$add_condition, { add_condition() })
+
+    # Seed one condition by default (isolate: runs once, outside a reactive context).
+    isolate(add_condition())
+
+    conditions <- reactive({
+      out <- list()
+      for (k in seq_along(cond_state$ids)) {
+        cid  <- cond_state$ids[k]
+        name <- input[[paste0("cond_name_", cid)]]
+        name <- trimws(if (is.null(name)) "" else as.character(name))
+        if (!nzchar(name)) name <- paste0("Condition", k)
+        col  <- input[[paste0("cond_col_", cid)]]
+        col  <- trimws(if (is.null(col)) "" else as.character(col))
+        mods <- input[[paste0("cond_modalities_", cid)]]
+        mods <- trimws(as.character(mods))
+        mods <- mods[!is.na(mods) & nzchar(mods)]
+        if (!nzchar(col) || length(mods) == 0) next
+        out[[length(out) + 1]] <- list(name = name, col = col, modalities = mods)
+      }
+      if (length(out) == 0) return(NULL)
+      out
+    })
+
     observeEvent(input$response_col, {
       req(input$response_col)
       mods <- clinic_modality_choices(input$response_col)
@@ -307,8 +381,7 @@ mod_signatures_comparison_server <- function(id, roots = c(home = "~")) {
     ## ---- Run ----
     comparison_res <- eventReactive(input$run_sigcomp, {
       req(clinic_df(), bulk_df(), selected_signatures(),
-          input$cond1_col, input$cond1_modalities,
-          input$cond2_col, input$cond2_modalities,
+          conditions(),
           input$response_col, input$responders, input$non_responders,
           output_dir_path())
 
@@ -319,12 +392,7 @@ mod_signatures_comparison_server <- function(id, roots = c(home = "~")) {
           clinic_annot            = clinic_df(),
           output_dir              = out_dir,
           signatures              = selected_signatures(),
-          cond1_col               = input$cond1_col,
-          cond1_modalities        = input$cond1_modalities,
-          cond1_name              = input$cond1_name %||% "Condition1",
-          cond2_col               = input$cond2_col,
-          cond2_modalities        = input$cond2_modalities,
-          cond2_name              = input$cond2_name %||% "Condition2",
+          conditions              = conditions(),
           response_col            = input$response_col,
           responder_modalities    = input$responders,
           nonresponder_modalities = input$non_responders,
@@ -379,8 +447,10 @@ mod_signatures_comparison_server <- function(id, roots = c(home = "~")) {
       }))
     })
 
-    # Register up to 9 correlation image renderers (the pipe always returns 9).
-    for (i in seq_len(9)) {
+    # One correlation image renderer per returned subset. The subset count is
+    # 3 * n_conditions + 3; register a generous, lazy pool of renderers (each
+    # only evaluates when its tab image is actually shown).
+    for (i in seq_len(60L)) {
       local({
         idx <- i
         output[[paste0("corr_img_", idx)]] <- renderImage({

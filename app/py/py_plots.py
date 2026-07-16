@@ -1207,6 +1207,170 @@ def plot_signatures_by_condition(
     return long_df, stats_df, fig, ax
 
 
+def plot_clinical_by_condition(
+    cond_clin,
+    cond_metas,
+    cond_names,
+    response_col: str,
+    responder_label: str = "R",
+    nonresponder_label: str = "NR",
+    figsize=None,
+    point_jitter: float = 0.08,
+    box_width: float = 0.6,
+    random_state: int = 42,
+):
+    """One boxplot panel per continuous clinical variable. Within each panel the
+    variable is split by condition x response, with a Mann-Whitney (Wilcoxon
+    rank-sum) R vs NR test per condition. Unlike the signature boxplots, each
+    variable gets its own y-axis (they live on different scales).
+    cond_clin / cond_metas are lists of per-condition frames; cond_names labels.
+    Returns (stats_df, fig)."""
+    rng = np.random.default_rng(random_state)
+    cond_names = [str(c) for c in cond_names]
+    n_cond = len(cond_names)
+
+    # Variables present in every condition frame.
+    variables = list(cond_clin[0].columns)
+    for d in cond_clin[1:]:
+        variables = [v for v in variables if v in d.columns]
+    if len(variables) == 0:
+        raise ValueError("No continuous clinical variable shared across conditions.")
+
+    def normalize_response(x):
+        if pd.isna(x):
+            return np.nan
+        s = str(x).strip().lower()
+        if s in {"responder", "resp", "r", "respondeur"}:
+            return responder_label
+        if s in {"non-responder", "nonresponder", "non responder", "nr",
+                 "non-repondeur", "non répondeur"}:
+            return nonresponder_label
+        return str(x)
+
+    def build_long(clin_df, meta_df, condition_name):
+        if response_col not in meta_df.columns:
+            raise ValueError(f"Column '{response_col}' missing from metadata for {condition_name}.")
+        common = clin_df.index.intersection(meta_df.index)
+        if len(common) == 0:
+            raise ValueError(f"No shared sample between clinic values and metadata for {condition_name}.")
+        tmp = clin_df.loc[common, variables].apply(pd.to_numeric, errors="coerce").copy()
+        resp = meta_df.loc[common, response_col].map(normalize_response)
+        tmp = tmp.join(resp.rename("response"))
+        long = (tmp.reset_index(names="sample")
+                .melt(id_vars=["sample", "response"], var_name="variable", value_name="value"))
+        long["condition"] = condition_name
+        return long
+
+    long_df = pd.concat(
+        [build_long(cond_clin[i], cond_metas[i], cond_names[i]) for i in range(n_cond)],
+        ignore_index=True)
+    long_df = long_df.dropna(subset=["value", "response"]).copy()
+    long_df = long_df[long_df["response"].isin([responder_label, nonresponder_label])].copy()
+
+    # Stats: Mann-Whitney R vs NR per variable and condition.
+    stats_rows = []
+    for var in variables:
+        for cn in cond_names:
+            sub = long_df[(long_df["variable"] == var) & (long_df["condition"] == cn)]
+            x = sub.loc[sub["response"] == responder_label, "value"].dropna().values
+            y = sub.loc[sub["response"] == nonresponder_label, "value"].dropna().values
+            if len(x) == 0 or len(y) == 0:
+                stat, pval = np.nan, np.nan
+            else:
+                res = mannwhitneyu(x, y, alternative="two-sided")
+                stat, pval = res.statistic, res.pvalue
+            stats_rows.append({
+                "variable": var, "condition": cn,
+                "n_responder": len(x), "n_nonresponder": len(y),
+                "statistic": stat, "pvalue": pval,
+            })
+    stats_df = pd.DataFrame(stats_rows)
+
+    # Layout: one subplot per variable (independent y-axes).
+    n_var = len(variables)
+    ncol = min(3, n_var)
+    nrow = int(np.ceil(n_var / ncol))
+    if figsize is None:
+        figsize = (ncol * max(4.5, n_cond * 1.6), nrow * 4.4)
+    fig, axes = plt.subplots(nrow, ncol, figsize=figsize, squeeze=False)
+    colors = {responder_label: "#1F30C9", nonresponder_label: "#F82408"}
+
+    group_order = []
+    for cn in cond_names:
+        group_order.append((cn, responder_label))
+        group_order.append((cn, nonresponder_label))
+
+    def add_pvalue_bar(ax, x1, x2, y, h, text):
+        ax.plot([x1, x1, x2, x2], [y, y + h, y + h, y], lw=1.2, c="black")
+        ax.text((x1 + x2) / 2, y + h, text, ha="center", va="bottom", fontsize=9)
+
+    for vi, var in enumerate(variables):
+        ax = axes[vi // ncol][vi % ncol]
+        vsub = long_df[long_df["variable"] == var]
+        vvals = vsub["value"].dropna().values
+        if len(vvals) == 0:
+            ax.text(0.5, 0.5, f"{var}\n(no data)", ha="center", va="center")
+            ax.set_axis_off()
+            continue
+        y_min, y_max = float(np.min(vvals)), float(np.max(vvals))
+        y_range = y_max - y_min if y_max > y_min else 1.0
+
+        current_x = 1
+        pos_map, xt, xl = {}, [], []
+        for cn, resp in group_order:
+            arr = vsub[(vsub["condition"] == cn) & (vsub["response"] == resp)]["value"].dropna().values
+            pos_map[(cn, resp)] = current_x
+            if len(arr) > 0:
+                bp = ax.boxplot([arr], positions=[current_x], widths=box_width,
+                                patch_artist=True, showfliers=False)
+                for patch in bp["boxes"]:
+                    patch.set_facecolor(colors[resp]); patch.set_alpha(0.65); patch.set_edgecolor("black")
+                for median in bp["medians"]:
+                    median.set_color("black"); median.set_linewidth(1.5)
+                jitter = rng.normal(0, point_jitter, size=len(arr))
+                ax.scatter(np.full(len(arr), current_x) + jitter, arr, s=22, alpha=0.7,
+                           color=colors[resp], edgecolor="black", linewidth=0.3)
+            xt.append(current_x); xl.append(f"{cn}\n{resp}")
+            current_x += 1
+            if resp == nonresponder_label:
+                current_x += 1.0  # gap between conditions
+
+        counter = 0
+        for cn in cond_names:
+            row = stats_df[(stats_df["variable"] == var) & (stats_df["condition"] == cn)]
+            if row.empty:
+                continue
+            pval = row["pvalue"].iloc[0]
+            x1, x2 = pos_map[(cn, responder_label)], pos_map[(cn, nonresponder_label)]
+            base_y = y_max + (counter + 1) * (0.08 * y_range)
+            add_pvalue_bar(ax, x1, x2, base_y, 0.025 * y_range,
+                           "p = NA" if pd.isna(pval) else f"p = {pval:.3g}")
+            counter += 1
+
+        ax.set_xticks(xt); ax.set_xticklabels(xl, rotation=45, ha="right", fontsize=8)
+        ax.set_ylim(y_min - 0.05 * y_range, y_max + (0.08 * n_cond + 0.12) * y_range)
+        ax.set_title(str(var), fontsize=11)
+        ax.grid(axis="y", linestyle="--", alpha=0.4)
+
+    # Hide any unused axes.
+    for j in range(n_var, nrow * ncol):
+        axes[j // ncol][j % ncol].set_axis_off()
+
+    legend_handles = [
+        plt.Line2D([0], [0], marker="s", color="w", label=responder_label,
+                   markerfacecolor=colors[responder_label], markeredgecolor="black",
+                   markersize=12, alpha=0.65),
+        plt.Line2D([0], [0], marker="s", color="w", label=nonresponder_label,
+                   markerfacecolor=colors[nonresponder_label], markeredgecolor="black",
+                   markersize=12, alpha=0.65),
+    ]
+    fig.legend(handles=legend_handles, title="Response", frameon=False,
+               loc="upper right")
+    fig.suptitle("Clinical variables by condition and response status", fontsize=13)
+    fig.tight_layout(rect=[0, 0, 1, 0.97])
+    return stats_df, fig
+
+
 def _bh_correct(pvals):
     p = np.asarray(pvals, dtype=float)
     n = p.size
@@ -1348,12 +1512,15 @@ def run_signatures_comparison(cond_scores, cond_metas, cond_names,
                               response_col="response",
                               responder_label="R", nonresponder_label="NR",
                               corr_method="spearman", corr_fdr=False,
+                              cond_clin=None,
                               out_dir="."):
-    """Orchestrates the three Signatures-comparison panels for an arbitrary number
-    of conditions and saves the PNGs. cond_scores / cond_metas are lists of the
-    per-condition score / metadata frames, cond_names their labels.
+    """Orchestrates the Signatures-comparison panels for an arbitrary number of
+    conditions and saves the PNGs. cond_scores / cond_metas are lists of the
+    per-condition score / metadata frames, cond_names their labels. cond_clin is
+    an optional list of per-condition continuous-clinical-variable frames; when
+    given, an extra boxplot panel is produced.
     Returns a dict with the saved paths, the per-subset correlation paths, and
-    the Mann-Whitney stats table."""
+    the Mann-Whitney stats table (plus the clinical panel when requested)."""
     import os
     os.makedirs(out_dir, exist_ok=True)
 
@@ -1377,6 +1544,21 @@ def run_signatures_comparison(cond_scores, cond_metas, cond_names,
     box_path = os.path.join(out_dir, "signatures_boxplots.png")
     fig.savefig(box_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
+
+    # --- Optional panel: continuous clinical variables by condition x response ---
+    clinical_box_path = None
+    clinical_stats = None
+    if cond_clin is not None and len(cond_clin) == n_cond \
+            and all(getattr(c, "shape", (0, 0))[1] > 0 for c in cond_clin):
+        cclin = [_writable_df(c) for c in cond_clin]
+        cstats, cfig = plot_clinical_by_condition(
+            cclin, cond_metas, cond_names,
+            response_col=response_col,
+            responder_label=responder_label, nonresponder_label=nonresponder_label)
+        clinical_box_path = os.path.join(out_dir, "clinical_boxplots.png")
+        cfig.savefig(clinical_box_path, dpi=150, bbox_inches="tight")
+        plt.close(cfig)
+        clinical_stats = cstats
 
     # Signatures shared by every condition.
     common_sigs = list(cond_scores[0].columns)
@@ -1426,4 +1608,6 @@ def run_signatures_comparison(cond_scores, cond_metas, cond_names,
         "roc": roc_path,
         "corr": corr_records,
         "stats": stats_df,
+        "clinical_boxplot": clinical_box_path,
+        "clinical_stats": clinical_stats,
     }

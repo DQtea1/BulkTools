@@ -13,6 +13,7 @@ signatures_comparison_pipe <- function(rnafilt_counts, clinic_annot, output_dir,
                                         clinic_filters = NULL,
                                         corr_method = "spearman", corr_fdr = FALSE,
                                         sample_ID_col = "ID_Patient", do_vst = TRUE,
+                                        clin_continuous = NULL,
                                         progress_cb = NULL) {
   library(reticulate)
 
@@ -114,10 +115,23 @@ signatures_comparison_pipe <- function(rnafilt_counts, clinic_annot, output_dir,
     out
   }
 
+  ## ---- Optional: numeric matrix of the selected continuous clinical variables ----
+  cont_vars <- character(0)
+  clin_num  <- NULL
+  if (!is.null(clin_continuous) && length(clin_continuous) > 0) {
+    cont_vars <- intersect(as.character(clin_continuous), colnames(clinic_annot))
+    if (length(cont_vars) > 0) {
+      clin_num <- clinic_annot[, cont_vars, drop = FALSE]
+      clin_num[] <- lapply(clin_num, function(x) suppressWarnings(as.numeric(as.character(x))))
+      rownames(clin_num) <- clinic_annot$ID_Patient
+    }
+  }
+
   ## ---- Build one score/meta subset per condition (any number) ----
   cond_names       <- character(0)
   cond_scores_list <- list()
   cond_meta_list   <- list()
+  cond_ids_list    <- list()
   n_labeled_total  <- 0
 
   for (k in seq_along(conditions)) {
@@ -146,12 +160,19 @@ signatures_comparison_pipe <- function(rnafilt_counts, clinic_annot, output_dir,
     cond_names            <- c(cond_names, cname)
     cond_scores_list[[k]] <- scores_df[cids, , drop = FALSE]
     cond_meta_list[[k]]   <- meta_k
+    cond_ids_list[[k]]    <- cids
   }
 
   cond_names <- make.unique(cond_names)  # keep condition labels unique for the plots
 
   if (n_labeled_total == 0) {
     stop("No sample carries a responder / non-responder label after mapping; check the response column and modalities.")
+  }
+
+  # Per-condition clinical-value frames (samples x continuous variables).
+  cond_clin_list <- NULL
+  if (!is.null(clin_num) && length(cont_vars) > 0) {
+    cond_clin_list <- lapply(cond_ids_list, function(cids) clin_num[cids, , drop = FALSE])
   }
 
   ## ---- Run the Python panels ----
@@ -165,6 +186,7 @@ signatures_comparison_pipe <- function(rnafilt_counts, clinic_annot, output_dir,
     nonresponder_label = nonresponder_label,
     corr_method        = corr_method,
     corr_fdr           = corr_fdr,
+    cond_clin          = cond_clin_list,
     out_dir            = output_path
   )
 
@@ -177,12 +199,15 @@ signatures_comparison_pipe <- function(rnafilt_counts, clinic_annot, output_dir,
          n     = as.integer(entry$n))
   })
 
+  clinical_boxplot_path <- if (is.null(res$clinical_boxplot)) NULL else as.character(res$clinical_boxplot)
+
   list(
-    boxplot_path = as.character(res$boxplot),
-    roc_path     = as.character(res$roc),
-    corr         = corr_list,
-    stats        = as.data.frame(res$stats),
-    scores       = scores_df,
-    output_path  = output_path
+    boxplot_path          = as.character(res$boxplot),
+    roc_path              = as.character(res$roc),
+    corr                  = corr_list,
+    stats                 = as.data.frame(res$stats),
+    clinical_boxplot_path = clinical_boxplot_path,
+    scores                = scores_df,
+    output_path           = output_path
   )
 }

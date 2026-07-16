@@ -61,7 +61,13 @@ mod_signatures_comparison_ui <- function(id) {
           selectizeInput(ns("genes"), "Genes :",
                          choices = character(0), selected = character(0),
                          multiple = TRUE,
-                         options = list(placeholder = "Type gene symbols…"))
+                         options = list(placeholder = "Type gene symbols…")),
+          tags$hr(),
+          tags$strong("Continuous clinical variables (optional)"),
+          selectizeInput(ns("clin_continuous"), "Variables :",
+                         choices = character(0), selected = character(0),
+                         multiple = TRUE,
+                         options = list(placeholder = "Numeric clinic columns…"))
         ),
 
         accordion_panel(
@@ -84,6 +90,9 @@ mod_signatures_comparison_ui <- function(id) {
       nav_panel("Boxplots",
                 card(div(class = "responsive-plot-frame",
                          imageOutput(ns("boxplot"), width = "100%", height = "100%")))),
+      nav_panel("Clinical boxplots",
+                card(div(class = "responsive-plot-frame",
+                         imageOutput(ns("clinical_boxplot"), width = "100%", height = "100%")))),
       nav_panel("Correlations", uiOutput(ns("corr_tabs_ui"))),
       nav_panel("ROC curves",
                 card(div(class = "responsive-plot-frame",
@@ -186,10 +195,23 @@ mod_signatures_comparison_server <- function(id, roots = c(home = "~")) {
       })
     })
 
-    ## ---- Populate response column when clinic loads ----
+    ## ---- Populate response column + continuous-variable choices on clinic load ----
+    numeric_clinic_cols <- function(df) {
+      names(df)[vapply(df, function(x) {
+        if (is.numeric(x)) return(TRUE)
+        xn <- suppressWarnings(as.numeric(as.character(x)))
+        n_ok  <- sum(!is.na(xn))
+        n_val <- sum(!is.na(x) & nzchar(as.character(x)))
+        n_val > 0 && n_ok >= 0.8 * n_val && length(unique(xn[!is.na(xn)])) > 2
+      }, logical(1))]
+    }
+
     observeEvent(input$clinic_file, {
       req(clinic_df())
       updateSelectInput(session, "response_col", choices = names(clinic_df()), selected = "")
+      updateSelectizeInput(session, "clin_continuous",
+                           choices = numeric_clinic_cols(clinic_df()),
+                           selected = character(0), server = TRUE)
       clinic_filter_state$ids <- integer()
     })
 
@@ -402,6 +424,7 @@ mod_signatures_comparison_server <- function(id, roots = c(home = "~")) {
           corr_method             = input$corr_method,
           corr_fdr                = isTRUE(input$corr_fdr),
           do_vst                  = isTRUE(input$do_vst),
+          clin_continuous         = input$clin_continuous,
           progress_cb             = function(frac, detail) setProgress(value = frac, detail = detail)
         )
         setProgress(value = 1, detail = "done")
@@ -427,6 +450,12 @@ mod_signatures_comparison_server <- function(id, roots = c(home = "~")) {
       p <- comparison_res()$boxplot_path
       req(p, file.exists(p))
       list(src = p, contentType = "image/png", alt = "Signatures boxplots")
+    }, deleteFile = FALSE)
+
+    output$clinical_boxplot <- renderImage({
+      p <- comparison_res()$clinical_boxplot_path
+      req(p, file.exists(p))
+      list(src = p, contentType = "image/png", alt = "Clinical variable boxplots")
     }, deleteFile = FALSE)
 
     output$roc <- renderImage({

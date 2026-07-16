@@ -1,26 +1,14 @@
 docker build -t qtea1/bulktools .
 
 
-# WITHOUT DOCKER :
-1. Set yourself in the same directory as the "app.R" file.
-
-2. Run in R terminal :
-> shiny::runApp(host = "0.0.0.0", port = 5288, launch.browser = FALSE)
-
-3. Open in browser :
-> http://localhost:5288
-
-4. Follow the tutorial in each module
-
-
 # WITH DOCKER (recommanded) : 
 
-## Install Docker Desktop
+## 1) Install Docker Desktop
 Download docker desktop then open it :
 
 https://docs.docker.com/desktop/setup/install/windows-install/
 
-## Pull the docker image from Dockerhub :
+## 2) Pull the docker image from Dockerhub :
 Run in the terminal :
 > docker pull qtea1/bulktools:latest
 

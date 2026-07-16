@@ -501,7 +501,7 @@ mod_signature_proj_server <- function(id, roots = c(home = "~")) {
           signature_name         = input$signatures,
           signature_to_use       = sel_signature()$geneset,
           sample_to_project_path = input$proj_sample$datapath[1],
-          Response_Col        = input$Response_Col,
+          Response_Col           = input$Response_Col,
           resp_var               = input$responders,
           non_resp_var           = input$non_responders,
           survival_time_col      = input$survival_time_col,

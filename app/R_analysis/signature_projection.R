@@ -83,14 +83,14 @@ signature_proj_pipe = function(rnafilt_counts, clinic_annot,
     unique(x)
     }
 
-    if (is.null(contrast) || length(contrast) == 0 || !nzchar(contrast)) {
-        stop("Please select a single clinical column under 'Contrast'.")
+    if (is.null(Response_Col) || length(Response_Col) == 0 || !nzchar(Response_Col)) {
+        stop("Please select a single clinical column under 'Response_Col'.")
     }
-    if (length(contrast) > 1) {
-        stop("Only one clinical column can be used as 'Contrast'.")
+    if (length(Response_Col) > 1) {
+        stop("Only one clinical column can be used as 'Response_Col'.")
     }
-    if (!contrast %in% colnames(clinic_annot)) {
-        stop(sprintf("Contrast column '%s' not found in clinic_annot.", contrast))
+    if (!Response_Col %in% colnames(clinic_annot)) {
+        stop(sprintf("Response_Col column '%s' not found in clinic_annot.", Response_Col))
     }
     if (is.null(resp_var) || length(resp_var) == 0 || all(!nzchar(resp_var))) {
         stop("Please select at least one modality under 'Responders'.")
@@ -109,12 +109,12 @@ signature_proj_pipe = function(rnafilt_counts, clinic_annot,
 
     clinic_ids_all    = trimws(as.character(clinic_annot$ID_Patient))
     ref_ids_all       = trimws(as.character(ID_ref_samples))
-    contrast_values   = trimws(as.character(clinic_annot[[contrast]]))
+    Response_Col_values   = trimws(as.character(clinic_annot[[Response_Col]]))
     resp_var_trim     = trimws(as.character(resp_var))
     non_resp_var_trim = trimws(as.character(non_resp_var))
 
-    resp_mask         = contrast_values %in% resp_var_trim
-    non_resp_mask     = contrast_values %in% non_resp_var_trim
+    resp_mask         = Response_Col_values %in% resp_var_trim
+    non_resp_mask     = Response_Col_values %in% non_resp_var_trim
 
     responder_ids_raw     = clean_ids(clinic_ids_all[resp_mask])
     non_responder_ids_raw = clean_ids(clinic_ids_all[non_resp_mask])
@@ -122,17 +122,17 @@ signature_proj_pipe = function(rnafilt_counts, clinic_annot,
     non_responder_ids     = intersect(non_responder_ids_raw, ref_ids_all)
 
     if (length(responder_ids) < 2 || length(non_responder_ids) < 2) {
-        unique_modalities <- sort(unique(contrast_values))
+        unique_modalities <- sort(unique(Response_Col_values))
         clinic_overlap    <- intersect(clinic_ids_all, ref_ids_all)
         stop(sprintf(
             paste0(
                 "Need at least 2 samples per class for nested CV.\n",
                 "--- DIAGNOSTIC ---\n",
                 "clinic_annot rows after filter        : %d\n",
-                "contrast column                       : '%s'\n",
+                "Response_Col column                       : '%s'\n",
                 "  unique values (first 15)            : %s\n",
-                "  rows where contrast %%in%% [%s]      : %d\n",
-                "  rows where contrast %%in%% [%s]      : %d\n",
+                "  rows where Response_Col %%in%% [%s]      : %d\n",
+                "  rows where Response_Col %%in%% [%s]      : %d\n",
                 "reference bulk sample count           : %d\n",
                 "clinic ID_Patient ∩ ref bulk          : %d / %d\n",
                 "  clinic IDs (first 5)                : %s\n",
@@ -140,12 +140,12 @@ signature_proj_pipe = function(rnafilt_counts, clinic_annot,
                 "responder IDs intersected with bulk   : %d -> [%s]\n",
                 "non-responder IDs intersected w/ bulk : %d -> [%s]\n",
                 "------------------\n",
-                "Common causes: (a) selected modalities do not appear verbatim in the contrast column, ",
+                "Common causes: (a) selected modalities do not appear verbatim in the Response_Col column, ",
                 "(b) clinic ID_Patient values don't match the bulk column names (whitespace, separator, case), ",
                 "(c) clinic_filter / gene_filter dropped all responder or non-responder samples."
             ),
             nrow(clinic_annot),
-            contrast,
+            Response_Col,
             paste(head(unique_modalities, 15), collapse = ", "),
             paste(resp_var_trim, collapse = ", "), sum(resp_mask),
             paste(non_resp_var_trim, collapse = ", "), sum(non_resp_mask),

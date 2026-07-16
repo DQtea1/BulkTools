@@ -1,7 +1,7 @@
 
 
 signature_proj_pipe = function(rnafilt_counts, clinic_annot,
-                                output_dir, therapy_used, signature_name,
+                                output_dir, signature_family_used, signature_name,
                                 signature_to_use, sample_to_project_path,
                                 contrast, resp_var, non_resp_var, clinic_filters = NULL,
                                 filter_by_gene, keep_low_or_high, quantile_thr,

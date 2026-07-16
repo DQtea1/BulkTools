@@ -436,15 +436,26 @@ mod_signatures_comparison_server <- function(id, roots = c(home = "~")) {
     output$logs <- renderPrint({
       note <- clinic_note()
       if (!is.null(note)) cat(note, "\n\n")
-      res <- tryCatch(comparison_res(), error = function(e) NULL)
+      # shiny.silent.error = not run yet / inputs incomplete. A real error means the
+      # pipeline failed, and must be surfaced here rather than swallowed.
+      res <- tryCatch(
+        comparison_res(),
+        shiny.silent.error = function(e) NULL,
+        error = function(e) e
+      )
       if (is.null(res)) {
         if (is.null(note)) cat("Run the analysis to populate the logs.\n")
+      } else if (inherits(res, "error")) {
+        cat("ERROR:\n", conditionMessage(res), "\n")
       } else {
         cat("Signatures compared:", ncol(res$scores), "\n")
         cat("Correlation subsets:", length(res$corr), "\n")
         cat("Output:", res$output_path, "\n")
       }
     })
+    # Keep the logs computed even when another tab (e.g. Tutorial) is shown, so that
+    # clicking "Run" starts the analysis whatever the active tab is.
+    outputOptions(output, "logs", suspendWhenHidden = FALSE)
 
     output$boxplot <- renderImage({
       p <- comparison_res()$boxplot_path

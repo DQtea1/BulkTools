@@ -55,7 +55,7 @@ mod_signature_proj_ui <- function(id) {
           accordion_panel(
             "Select signature *",
             selectizeInput(
-              ns("therapy"), "Therapy :",
+              ns("signature_family"), "Signature_family :",
               choices = character(0),
               multiple = FALSE,
               options = list(placeholder = "Type a treatment (no spaces)…")
@@ -82,7 +82,7 @@ mod_signature_proj_ui <- function(id) {
             "Parameters *",
             checkboxInput(ns("do_vst"), "VST-normalize (normVST_bulk)", value = TRUE),
             selectInput(
-              ns("contrast"), "Contrast :",
+              ns("Response_Col"), "Response Column :",
               choices = character(0),
               multiple = FALSE, selectize = FALSE, size = 7
             ),
@@ -277,7 +277,7 @@ mod_signature_proj_server <- function(id, roots = c(home = "~")) {
 
     observeEvent(input$clinic_file, {
       req(clinic_df())
-      updateSelectInput(session, "contrast", choices = names(clinic_df()), selected = "")
+      updateSelectInput(session, "Response_Col", choices = names(clinic_df()), selected = "")
       updateSelectInput(session, "survival_time_col", choices = names(clinic_df()),  selected = "") 
       updateSelectInput(session, "event_realization_col", choices = names(clinic_df()),  selected = "") 
       clinic_filter_state$ids <- integer()
@@ -326,9 +326,9 @@ mod_signature_proj_server <- function(id, roots = c(home = "~")) {
       updateSelectizeInput(session, "gene_filt_proj", choices = gene_filter_choices(genes), selected = "", server = TRUE)
     })
 
-    observeEvent(input$contrast, {
-      req(clinic_df(), input$contrast)
-      v <- clinic_df()[[input$contrast]]
+    observeEvent(input$Response_Col, {
+      req(clinic_df(), input$Response_Col)
+      v <- clinic_df()[[input$Response_Col]]
       mods <- if (is.factor(v)) levels(v) else sort(unique(as.character(v)))
       mods <- mods[!is.na(mods) & mods != ""]
       updateSelectInput(session, "responders", choices = mods, selected = "")
@@ -338,17 +338,17 @@ mod_signature_proj_server <- function(id, roots = c(home = "~")) {
     app_dir <- normalizePath(getwd())
     signatures_path = file.path(app_dir, "REF_DATA", "signatures", "signatures.json")
     signatures_json = fromJSON(signatures_path)
-    updateSelectizeInput(session, "therapy", choices = names(signatures_json), server = TRUE)
+    updateSelectizeInput(session, "signature_family", choices = names(signatures_json), server = TRUE)
 
-    observeEvent(input$therapy, {
-      req(input$therapy, signatures_json)
-      signatures_list <- names(signatures_json[[input$therapy]])
+    observeEvent(input$signature_family, {
+      req(input$signature_family, signatures_json)
+      signatures_list <- names(signatures_json[[input$signature_family]])
       updateSelectizeInput(session, "signatures", choices = signatures_list, server = TRUE)
     })
 
     sel_signature <- reactive({
-      req(input$therapy, input$signatures, signatures_json)
-      signatures_json[[input$therapy]][[input$signatures]]
+      req(input$signature_family, input$signatures, signatures_json)
+      signatures_json[[input$signature_family]][[input$signatures]]
     })
 
     ## ---- Extra signature / gene components (combine with +, -, *, /) ----
@@ -367,7 +367,7 @@ mod_signature_proj_server <- function(id, roots = c(home = "~")) {
       tagList(lapply(extra_comp_state$ids, function(cid) {
         op_id        <- paste0("comp_op_", cid)
         type_id      <- paste0("comp_type_", cid)
-        therapy_id   <- paste0("comp_therapy_", cid)
+        signature_family_id   <- paste0("comp_signature_family_", cid)
         signature_id <- paste0("comp_signature_", cid)
         gene_id      <- paste0("comp_gene_", cid)
         remove_id    <- paste0("remove_component_", cid)
@@ -385,15 +385,15 @@ mod_signature_proj_server <- function(id, roots = c(home = "~")) {
                       multiple = FALSE, selectize = FALSE, size = 2),
           conditionalPanel(
             condition = sprintf("input['%s'] == 'Signature'", ns(type_id)),
-            selectizeInput(ns(therapy_id), "Therapy :",
+            selectizeInput(ns(signature_family_id), "signature_family :",
                            choices = names(signatures_json),
-                           selected = isolate(input[[therapy_id]]),
-                           options = list(placeholder = "Therapy…")),
+                           selected = isolate(input[[signature_family_id]]),
+                           options = list(placeholder = "signature_family…")),
             local({
-              # Rebuild signature choices from this component's current therapy
+              # Rebuild signature choices from this component's current signature_family
               # so a re-render (triggered by adding/removing another component)
               # does not wipe the existing components' signature dropdowns.
-              sel_th <- isolate(input[[therapy_id]])
+              sel_th <- isolate(input[[signature_family_id]])
               sig_choices <- if (!is.null(sel_th) && nzchar(sel_th)) {
                 names(signatures_json[[sel_th]])
               } else {
@@ -426,13 +426,13 @@ mod_signature_proj_server <- function(id, roots = c(home = "~")) {
 
       local({
         current_cid  <- cid
-        therapy_id   <- paste0("comp_therapy_", current_cid)
+        signature_family_id   <- paste0("comp_signature_family_", current_cid)
         signature_id <- paste0("comp_signature_", current_cid)
         remove_id    <- paste0("remove_component_", current_cid)
 
-        observeEvent(input[[therapy_id]], {
-          req(input[[therapy_id]])
-          sigs <- names(signatures_json[[input[[therapy_id]]]])
+        observeEvent(input[[signature_family_id]], {
+          req(input[[signature_family_id]])
+          sigs <- names(signatures_json[[input[[signature_family_id]]]])
           updateSelectizeInput(session, signature_id, choices = sigs,
                                selected = isolate(input[[signature_id]]), server = TRUE)
         }, ignoreInit = TRUE)
@@ -470,7 +470,7 @@ mod_signature_proj_server <- function(id, roots = c(home = "~")) {
         if (is.null(op) || is.null(type)) next
 
         if (identical(type, "Signature")) {
-          th  <- input[[paste0("comp_therapy_", cid)]]
+          th  <- input[[paste0("comp_signature_family_", cid)]]
           sig <- input[[paste0("comp_signature_", cid)]]
           if (is.null(th) || is.null(sig) || !nzchar(th) || !nzchar(sig)) next
           gs <- signatures_json[[th]][[sig]]$geneset
@@ -492,16 +492,16 @@ mod_signature_proj_server <- function(id, roots = c(home = "~")) {
       )
 
       withProgress(message = "Projecting signature score...", value = 0.05, {
-        output_dir = file.path(path.expand(output_dir_path()), input$therapy, input$signatures)
+        output_dir = file.path(path.expand(output_dir_path()), input$signature_family, input$signatures)
         res <- signature_proj_pipe(
           rnafilt_counts         = bulk_df(),
           clinic_annot           = clinic_df(),
           output_dir             = output_dir,
-          therapy_used           = input$therapy,
+          signature_family_used  = input$signature_family,
           signature_name         = input$signatures,
           signature_to_use       = sel_signature()$geneset,
           sample_to_project_path = input$proj_sample$datapath[1],
-          contrast               = input$contrast,
+          Response_Col        = input$Response_Col,
           resp_var               = input$responders,
           non_resp_var           = input$non_responders,
           survival_time_col      = input$survival_time_col,

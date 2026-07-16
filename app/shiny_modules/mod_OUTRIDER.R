@@ -392,13 +392,24 @@ mod_outrider_server <- function(id, roots = c(home = "~")) {
     output$logs <- renderPrint({
       note <- clinic_note()
       if (!is.null(note)) cat(note, "\n\n")
-      res <- tryCatch(outrider_res(), error = function(e) NULL)
+      # shiny.silent.error = not run yet / inputs incomplete. A real error means the
+      # pipeline failed, and must be surfaced here rather than swallowed.
+      res <- tryCatch(
+        outrider_res(),
+        shiny.silent.error = function(e) NULL,
+        error = function(e) e
+      )
       if (is.null(res)) {
         if (is.null(note)) cat("Run the analysis to populate the logs.\n")
+      } else if (inherits(res, "error")) {
+        cat("ERROR:\n", conditionMessage(res), "\n")
       } else {
         cat("Outputs:\n"); cat(paste0("  ", names(res)), sep = "\n")
       }
     })
+    # Keep the logs computed even when another tab (e.g. Tutorial) is shown, so that
+    # clicking "Run" starts the analysis whatever the active tab is.
+    outputOptions(output, "logs", suspendWhenHidden = FALSE)
 
     output$aberrant_per_sample <- renderPlot({
       p <- outrider_res()$plots$aberrant_per_sample

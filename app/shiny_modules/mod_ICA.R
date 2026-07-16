@@ -216,15 +216,35 @@ mod_ica_server <- function(id, roots = c(home = "~")) {
       msg <- character(0)
       note <- clinic_note()
       if (!is.null(note)) msg <- c(msg, note, "")
-      if (isTruthy(input$run_mstd) && !is.null(tryCatch(mstd_res(), error = function(e) NULL))) {
-        msg <- c(msg, "MSTD outputs:", paste0("  ", names(mstd_res())))
+
+      # shiny.silent.error = not run yet / inputs incomplete; a real error means the
+      # pipeline failed and must be surfaced here rather than swallowed.
+      grab <- function(r) tryCatch(
+        r(),
+        shiny.silent.error = function(e) NULL,
+        error = function(e) e
+      )
+
+      m <- grab(mstd_res)
+      if (inherits(m, "error")) {
+        msg <- c(msg, "MSTD ERROR:", conditionMessage(m), "")
+      } else if (!is.null(m)) {
+        msg <- c(msg, "MSTD outputs:", paste0("  ", names(m)), "")
       }
-      if (isTruthy(input$run_ica) && !is.null(tryCatch(ica_res(), error = function(e) NULL))) {
-        msg <- c(msg, "ICA outputs:", paste0("  ", names(ica_res())))
+
+      i <- grab(ica_res)
+      if (inherits(i, "error")) {
+        msg <- c(msg, "ICA ERROR:", conditionMessage(i))
+      } else if (!is.null(i)) {
+        msg <- c(msg, "ICA outputs:", paste0("  ", names(i)))
       }
+
       if (length(msg) == 0) msg <- "Run MSTD and/or ICA to populate the tabs."
       cat(msg, sep = "\n")
     })
+    # Keep the logs computed even when another tab (e.g. Tutorial) is shown, so that
+    # clicking "Run" starts the analysis whatever the active tab is.
+    outputOptions(output, "logs", suspendWhenHidden = FALSE)
 
     # ---- Image outputs ----
     render_png <- function(path_reactive, alt) {

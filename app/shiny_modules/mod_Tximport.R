@@ -129,9 +129,24 @@ mod_tximport_server <- function(id, roots = c(home = "~")) {
     })
 
     output$logs <- renderPrint({
-      req(tximport_res())
-      names(tximport_res())
+      # shiny.silent.error = not run yet / inputs incomplete; a real error means the
+      # pipeline failed and must be surfaced here rather than swallowed.
+      res <- tryCatch(
+        tximport_res(),
+        shiny.silent.error = function(e) NULL,
+        error = function(e) e
+      )
+      if (is.null(res)) {
+        cat("Run the analysis to populate the logs.\n")
+      } else if (inherits(res, "error")) {
+        cat("ERROR:\n", conditionMessage(res), "\n")
+      } else {
+        cat("Outputs:\n"); cat(paste0("  ", names(res)), sep = "\n")
+      }
     })
+    # Keep the logs computed even when another tab is shown, so that clicking "Run"
+    # starts the analysis whatever the active tab is.
+    outputOptions(output, "logs", suspendWhenHidden = FALSE)
 
     output$summary <- renderText({
       req(tximport_res())

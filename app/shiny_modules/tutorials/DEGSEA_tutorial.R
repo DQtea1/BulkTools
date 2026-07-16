@@ -59,7 +59,8 @@ degsea_tutorial_card <- function() {
         tags$li(
           tags$strong("Run DEGSEA"),
           tags$ul(
-            tags$li("Click the button once all required inputs are filled.")
+            tags$li("Click the button once all required inputs are filled."),
+            tags$li("The run may take several minutes depending on your computer, the number of samples and genes.")
           )
         )
       ),
@@ -69,9 +70,9 @@ degsea_tutorial_card <- function() {
         tags$li(tags$strong("Logs"), ": shows the returned objects available after the run."),
         tags$li(tags$strong("Volcano"), ": volcano plot of differential expression results."),
         tags$li(tags$strong("Differential Expression"), ": top differentially expressed genes shown as a table."),
-        tags$li(tags$strong("GSEA table"), ": pathway enrichment scores and leading-edge genes."),
-        tags$li(tags$strong("GESECA table"), ": GEne SEt Co-regulation Analysis."),
-        tags$li(tags$strong("ssGSEA table"), ": per-sample enrichment score matrix.")
+        tags$li(tags$strong("GSEA table"), ": Gene Set Enrichment Analysis informs us about the genesets/pathways that are enriched in one of the conditions."),
+        tags$li(tags$strong("GESECA table"), ": GEne SEt Co-regulation Analysis informs us about the genesets/pathways that are co-regulated in our cohort."),
+        tags$li(tags$strong("ssGSEA table"), ": Gives a Gene Set Enrichment Score for each sample individually.")
       ),
 
       tags$h4("Saved Results And File Formats"),

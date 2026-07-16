@@ -25,11 +25,11 @@ Run "windows_launcher.bat" file as administrator. It will open a powershell wind
     --mount type=bind,source="C:\Users\username\Documents",target=/browse `
     --mount type=bind,source="C:\shiny_out",target=/out `
     qtea1/bulktools
-    
+
 nb : You should edit the mount paths so that they correspond to your device's.
 
 
-## FOR MACOS (two options) :
+## FOR MACOS (May not work foe everyone) :
 ### Click style (option1 easiest) :
 Double-click "macos_launcher.command". It opens a Terminal window and a browser tab. If the browser tab is empty after 10sec, refresh it.
 

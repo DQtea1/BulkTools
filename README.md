@@ -1,7 +1,7 @@
 docker build -t qtea1/bulktools .
 
 
-# WITH DOCKER (recommanded) : 
+# WITH DOCKER : 
 
 ## 1) Install Docker Desktop
 Download docker desktop then open it :

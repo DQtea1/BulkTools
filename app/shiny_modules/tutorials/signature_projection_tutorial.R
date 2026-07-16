@@ -9,7 +9,7 @@ signature_projection_tutorial_card <- function() {
         "projects one new sample onto it. It learns, by nested cross-validation,",
         "where a responder / non-responder boundary sits on the signature score,",
         "then places the projected sample relative to that boundary with a",
-        "calibrated probability and confidence interval."
+        "calibrated probability of response and confidence interval."
       ),
 
       tags$h4("What The Module Can Do"),
@@ -18,7 +18,9 @@ signature_projection_tutorial_card <- function() {
         tags$li("Project one external sample (from its Salmon quantification) onto the same score scale."),
         tags$li("Estimate the decision threshold and a gray zone by nested cross-validation, with bootstrap confidence intervals."),
         tags$li("Show a calibrated probability of response for the projected sample."),
-        tags$li("Assess the signature with a ROC curve, a responder vs non-responder boxplot, and an optional Kaplan-Meier survival plot.")
+        tags$li("Assess the performance of the signature with a ROC curve, a responder vs non-responder boxplot, and an optional Kaplan-Meier survival plot.")
+        tags$li("Several signatures can be combined to refine the prediction accuracy."),
+
       ),
 
       tags$h4("Required Inputs And Where To Fill Them"),
@@ -81,11 +83,11 @@ signature_projection_tutorial_card <- function() {
         tags$li(tags$strong("Logs"), ": shows the returned objects available after the run."),
         tags$li(tags$strong("Projection"), ": plots the reference score distribution, the decision threshold, the gray zone (uncertain classification), and the projected sample with its calibrated probability of response."),
         tags$li(tags$strong("Survival analysis"), ": plots the Kaplan-Meier plot (only when KM is enabled)."),
-        tags$li(tags$strong("Signature assessment"), ": Evaluates the efficacy of the selected signature in discriminating responder and non-responder using boxplots (Wilcoxon) and ROC curves with AUC.")
+        tags$li(tags$strong("Signature assessment"), ": Evaluates the performance of the selected signature in discriminating responder and non-responder using boxplots (+Wilcoxon) and ROC curves with AUC.")
       ),
 
       tags$h4("Saved Results And File Formats"),
-      tags$p(class = "mb-2", "Results are written under the output directory, in ", tags$code("<therapy>/<signature>/"), " :"),
+      tags$p(class = "mb-2", "Results are written under the output directory, in ", tags$code("<signature_family>/<signature>/"), " :"),
       tags$ul(
         tags$li(tags$code("projection/proj_<sample>.png"), ": the projection + confidence plot."),
         tags$li(tags$code("model_eval/ROC_AUC.png"), " and ", tags$code("model_eval/wilcox_boxplot.png"), ": the signature assessment plots."),

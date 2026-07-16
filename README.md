@@ -25,6 +25,7 @@ Run "windows_launcher.bat" file as administrator. It will open a powershell wind
     --mount type=bind,source="C:\Users\username\Documents",target=/browse `
     --mount type=bind,source="C:\shiny_out",target=/out `
     qtea1/bulktools
+    
 nb : You should edit the mount paths so that they correspond to your device's.
 
 
@@ -54,12 +55,3 @@ The image is built for Intel/amd64 only, so on Apple Silicon Docker runs it thro
     qtea1/bulktools
 nb : "--platform linux/amd64" is required on Apple Silicon and harmless on Intel Macs. Edit the mount paths if you want other folders.
 
-
-## FOR LINUX (doesnt work yet):
-> docker run --rm -p 5288:5288 \
-    -e SHINY_PORT=5288 \
-    -e SHINY_ROOT_PATH=/browse \
-    -e SHINY_ROOT_NAME=home \
-    -v /home/user:/browse \
-    -v /home:/out \
-    qtea1/bulktools

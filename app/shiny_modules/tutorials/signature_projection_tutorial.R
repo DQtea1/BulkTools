@@ -18,8 +18,8 @@ signature_projection_tutorial_card <- function() {
         tags$li("Project one external sample (from its Salmon quantification) onto the same score scale."),
         tags$li("Estimate the decision threshold and a gray zone by nested cross-validation, with bootstrap confidence intervals."),
         tags$li("Show a calibrated probability of response for the projected sample."),
-        tags$li("Assess the performance of the signature with a ROC curve, a responder vs non-responder boxplot, and an optional Kaplan-Meier survival plot.")
-        tags$li("Several signatures can be combined to refine the prediction accuracy."),
+        tags$li("Assess the performance of the signature with a ROC curve, a responder vs non-responder boxplot, and an optional Kaplan-Meier survival plot."),
+        tags$li("Several signatures can be combined to refine the prediction accuracy.")
 
       ),
 

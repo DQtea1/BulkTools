@@ -3,7 +3,12 @@
 ## 1) Install Docker Desktop
 Download docker desktop then open it :
 
+For Windows : 
 https://docs.docker.com/desktop/setup/install/windows-install/
+
+For Mac (for older macs choose ): 
+https://docs.docker.com/desktop/setup/install/mac-install/
+
 
 ## 2) Pull the docker image from Dockerhub :
 Run in the terminal :
@@ -41,5 +46,5 @@ If double-clicking does nothing, make it executable once :
 
 
 
-
-docker build -t qtea1/bulktools .
+To build the docker use this type of cmd (optionnal) :
+> docker build -t qtea1/bulktools .

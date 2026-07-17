@@ -46,5 +46,5 @@ If double-clicking does nothing, make it executable once :
 
 
 
-To build the docker use this type of cmd (optionnal) :
+nb : To build the docker use this type of cmd (optionnal) :
 > docker build -t qtea1/bulktools .

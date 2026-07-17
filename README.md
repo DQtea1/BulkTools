@@ -1,7 +1,4 @@
-docker build -t qtea1/bulktools .
-
-
-# WITH DOCKER : 
+# INSTALL THE APP : 
 
 ## 1) Install Docker Desktop
 Download docker desktop then open it :
@@ -12,6 +9,8 @@ https://docs.docker.com/desktop/setup/install/windows-install/
 Run in the terminal :
 > docker pull qtea1/bulktools:latest
 
+
+# RUN THE APP : 
 ## FOR WINDOWS (two options) : 
 ### Click style (option1 easiest) :
 Run "windows_launcher.bat" file as administrator. It will open a powershell window as well as a browser tab. If the browser tab doesn't show anything after 10sec, refresh it. 
@@ -29,29 +28,18 @@ Run "windows_launcher.bat" file as administrator. It will open a powershell wind
 nb : You should edit the mount paths so that they correspond to your device's.
 
 
-## FOR MACOS (May not work foe everyone) :
+## FOR MACOS (May not work for everyone) :
 ### Click style (option1 easiest) :
 Double-click "macos_launcher.command". It opens a Terminal window and a browser tab. If the browser tab is empty after 10sec, refresh it.
 
-nb (first launch) : macOS may block the script ("unidentified developer"). Right-click the file > Open > Open (once), or run in a terminal :
+First launch : macOS may block the script ("unidentified developer"). Right-click the file > Open > Open (once), or run in a terminal :
 > xattr -d com.apple.quarantine macos_launcher.command
 
-nb : if double-clicking does nothing, make it executable once :
+If double-clicking does nothing, make it executable once :
 > chmod +x macos_launcher.command
 
-### Apple Silicon (M1 / M2 / M3 / M4) :
-The image is built for Intel/amd64 only, so on Apple Silicon Docker runs it through Rosetta emulation.
-1. In Docker Desktop > Settings > General, enable "Use Rosetta for x86/amd64 emulation".
-2. The launcher already passes "--platform linux/amd64". If you run docker by hand, add that flag too (see below).
 
-### Run in terminal (option2) :
-> docker run --rm -p 5288:5288 \
-    --platform linux/amd64 \
-    -e SHINY_PORT=5288 \
-    -e SHINY_ROOT_PATH=/browse \
-    -e SHINY_ROOT_NAME=home \
-    --mount type=bind,source="$HOME",target=/browse \
-    --mount type=bind,source="$HOME/shiny_out",target=/out \
-    qtea1/bulktools
-nb : "--platform linux/amd64" is required on Apple Silicon and harmless on Intel Macs. Edit the mount paths if you want other folders.
 
+
+
+docker build -t qtea1/bulktools .

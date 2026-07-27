@@ -23,9 +23,9 @@ outrider_tutorial_card <- function() {
 
       tags$h4("What The Module Can Do"),
       tags$ul(
-        tags$li("Load one bulk count matrix and one clinical annotation table."),
+        tags$li("Load a bulk count matrix and, optionally, a clinical annotation table."),
         tags$li("Optionally mask one or more reference samples before fitting."),
-        tags$li("Optionally control for known confounders during the autoencoder step."),
+        tags$li("Use OUTRIDER's autoencoder to learn and control latent confounding structure from the count data."),
         tags$li("Pick a clinical column whose modalities will label samples in plots."),
         tags$li("Save volcano plots per sample and rank / expected-vs-observed plots per gene."),
         tags$li("Browse any saved figure from inside the app and open it as a sub-tab.")
@@ -37,7 +37,7 @@ outrider_tutorial_card <- function() {
           tags$strong("Files *"),
           tags$ul(
             tags$li(tags$strong("Bulk path"), ": upload the bulk RNA-seq count matrix (genes x samples). Counts must be integers; the module rounds them before fitting."),
-            tags$li(tags$strong("Clinic path"), ": upload the clinical annotation table. Sample IDs are read from the ", tags$code("ID_Patient"), " column when present, otherwise from row names."),
+            tags$li(tags$strong("Clinic path (optional)"), ": upload a clinical annotation table to add labels or filter samples based on annotation completeness. Sample IDs are read from the ", tags$code("ID_Patient"), " column when present, otherwise from row names. Without this file, all bulk-matrix columns are used as samples."),
             tags$li(tags$strong("Output directory"), ": choose where the result tables and figures will be written.")
           )
         ),
@@ -45,7 +45,7 @@ outrider_tutorial_card <- function() {
           tags$strong("Parameters *"),
           tags$ul(
             tags$li(tags$strong("Samples to exclude"), ": List of sample IDs to mask before fitting. Useful when one sample is a known outlier or when a sample has replicates and you do not want those to influence the autoencoder."),
-            tags$li(tags$strong("Confounders"), ": clinical columns whose effect should be regressed out by the autoencoder. Samples with ", tags$code("NA"), " in any selected confounder are dropped from the run."),
+            tags$li(tags$strong("Annotation fields required"), ": optional clinical columns used to drop samples with ", tags$code("NA"), ". OUTRIDER does not fit these fields as covariates; its autoencoder learns confounder correction from the counts."),
             tags$li(tags$strong("Labelizing column"), ": Clinical column whose modalities are used to color samples in the plots."),
             tags$li(tags$strong("Samples to volcano"), ": sample IDs for which a per-sample volcano plot is saved. Leave empty to generate one for every sample present in the results table."),
             tags$li(tags$strong("Genes to plot"), ": gene IDs for which an expression-rank plot and an expected-vs-observed plot are saved. Leave empty to generate them for every gene present in the results table (this can produce many files)."),
@@ -55,7 +55,7 @@ outrider_tutorial_card <- function() {
         tags$li(
           tags$strong("Run OUTRIDER"),
           tags$ul(
-            tags$li("Click the button once the bulk file, clinic file and output directory are filled.")
+            tags$li("Click the button once the bulk file and output directory are filled. The clinic file is optional.")
           )
         )
       ),
@@ -89,8 +89,8 @@ outrider_tutorial_card <- function() {
 
       tags$h4("Practical Notes"),
       tags$ul(
-        tags$li("Sample IDs must overlap between the bulk count matrix columns and the clinic table; samples that are not in both are dropped."),
-        tags$li("Selecting confounders with missing values implicitly removes the affected samples from the run."),
+        tags$li("When a clinic table is provided, only sample IDs shared with the bulk count matrix are used. Without one, every bulk-matrix column is used."),
+        tags$li("Selecting annotation fields required removes samples with missing values in those fields; it does not add clinical covariates to OUTRIDER's model."),
         tags$li("Leaving ", tags$strong("Samples to volcano"), " or ", tags$strong("Genes to plot"), " empty can produce a large number of figures; use the selectors to restrict to the sample/genes you actually want to inspect."),
         tags$li("The aberrant-per-sample plot uses ", tags$code("padjCutoff = 0.3"), "; tweak the OUTRIDER pipeline file if you need a different threshold."),
         tags$li("Plots are generated only at run time; the picker tabs only show files once OUTRIDER has finished running.")

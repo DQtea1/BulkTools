@@ -34,9 +34,9 @@ mod_outrider_ui <- function(id) {
           multiple = TRUE,
 
           accordion_panel(
-            "Files *",
+            "Files",
             fileInput(ns("bulk_file"),   "Bulk path : *",   accept = c(".csv", ".tsv")),
-            fileInput(ns("clinic_file"), "Clinic path : *", accept = c(".csv", ".tsv")),
+            fileInput(ns("clinic_file"), "Clinic path (optional) :", accept = c(".csv", ".tsv")),
             shinyFiles::shinyDirButton(ns("output_dir"), "Output directory : *", "Upload")
           ),
 
@@ -61,14 +61,19 @@ mod_outrider_ui <- function(id) {
             ),
             div(
               selectInput(
-                ns("confounders"), "Confounders :",
+                ns("required_annotation_fields"), "Annotation fields required (drop NA samples) :",
                 choices = character(0),
                 multiple = TRUE, selectize = FALSE, size = 7
+              ),
+              tags$p(
+                class = "text-muted small mb-1",
+                "These fields are used only to exclude samples with missing annotations. ",
+                "OUTRIDER's autoencoder learns its confounder correction from the count data."
               ),
               div(
                 class = "d-flex justify-content-end mb-2",
                 actionButton(
-                  ns("clear_confounders"),
+                  ns("clear_required_annotation_fields"),
                   label = NULL,
                   icon = icon("trash"),
                   class = "btn btn-sm btn-outline-danger"
@@ -209,6 +214,13 @@ mod_outrider_server <- function(id, roots = c(home = "~")) {
     clinic_df   <- .clinic_in$df
     clinic_note <- .clinic_in$message
 
+    # OUTRIDER needs sample metadata, but that metadata can be derived from the
+    # count-matrix column names when no clinical annotation file is supplied.
+    clinic_df_optional <- reactive({
+      if (!isTruthy(input$clinic_file)) return(NULL)
+      clinic_df()
+    })
+
     bulk_df <- reactive({
       read_delim_auto(input$bulk_file)
     })
@@ -218,8 +230,8 @@ mod_outrider_server <- function(id, roots = c(home = "~")) {
       if (isTruthy(input$bulk_file)) {
         ids <- colnames(bulk_df())
       }
-      if (isTruthy(input$clinic_file)) {
-        clinic <- clinic_df()
+      clinic <- clinic_df_optional()
+      if (!is.null(clinic)) {
         clinic_ids <- if ("ID_Patient" %in% colnames(clinic)) {
           as.character(clinic$ID_Patient)
         } else {
@@ -239,11 +251,18 @@ mod_outrider_server <- function(id, roots = c(home = "~")) {
     })
 
     observeEvent(input$clinic_file, {
-      req(clinic_df())
-      clinic_cols <- names(clinic_df())
+      clinic <- clinic_df_optional()
+      if (is.null(clinic)) {
+        updateSelectizeInput(session, "label_col", choices = character(0), selected = "", server = TRUE)
+        updateSelectInput(session, "required_annotation_fields", choices = character(0), selected = NULL)
+        updateSelectizeInput(session, "samples_to_exclude", choices = sample_id_choices(), server = TRUE)
+        updateSelectizeInput(session, "volcano_samples", choices = sample_id_choices(), server = TRUE)
+        return()
+      }
+      clinic_cols <- names(clinic)
       label_cols  <- setdiff(clinic_cols, c("ID_Patient", "sampleID"))
       updateSelectizeInput(session, "label_col", choices = label_cols, selected = "", server = TRUE)
-      updateSelectInput(session, "confounders", choices = clinic_cols, selected = NULL)
+      updateSelectInput(session, "required_annotation_fields", choices = clinic_cols, selected = NULL)
       updateSelectizeInput(session, "samples_to_exclude", choices = sample_id_choices(), server = TRUE)
       updateSelectizeInput(session, "volcano_samples",   choices = sample_id_choices(), server = TRUE)
     })
@@ -346,8 +365,11 @@ mod_outrider_server <- function(id, roots = c(home = "~")) {
     observeEvent(input$clear_samples_to_exclude, {
       updateSelectizeInput(session, "samples_to_exclude", selected = character(0))
     })
-    observeEvent(input$clear_confounders, {
-      updateSelectInput(session, "confounders", selected = character(0))
+    observeEvent(input$clear_required_annotation_fields, {
+      updateSelectInput(session, "required_annotation_fields", selected = character(0))
+    })
+    observeEvent(input$clear_label_col, {
+      updateSelectizeInput(session, "label_col", selected = "")
     })
     observeEvent(input$clear_volcano_samples, {
       updateSelectizeInput(session, "volcano_samples", selected = character(0))
@@ -363,18 +385,31 @@ mod_outrider_server <- function(id, roots = c(home = "~")) {
 
     # ---- RUN OUTRIDER (this must NOT be inside observeEvent) ----
     outrider_res <- eventReactive(input$run_OUTRIDER, {
-      req(
-        clinic_df(), bulk_df(),
-        output_dir_path(), input$iterations
-      )
+      req(bulk_df(), output_dir_path(), input$iterations)
+
+      clinic_annot <- clinic_df_optional()
+      if (is.null(clinic_annot)) {
+        sample_ids <- colnames(bulk_df())
+        validate(need(
+          length(sample_ids) > 0 &&
+            all(!is.na(sample_ids) & nzchar(sample_ids)) &&
+            !anyDuplicated(sample_ids),
+          "The bulk count matrix must have unique, non-empty sample IDs as column names."
+        ))
+        clinic_annot <- data.frame(
+          ID_Patient = sample_ids,
+          row.names = sample_ids,
+          check.names = FALSE
+        )
+      }
 
       withProgress(message = "Running OUTRIDER...", value = 0.05, {
         res <- OUTRIDER_pipe(
           rnafilt_counts     = bulk_df(),
-          clinic_annot       = clinic_df(),
+          clinic_annot       = clinic_annot,
           output_dir         = output_dir_path(),
           samples_to_exclude = or_NULL(input$samples_to_exclude),
-          confounders        = or_NULL(input$confounders),
+          required_annotation_fields = or_NULL(input$required_annotation_fields),
           volcano_samples    = or_NULL(input$volcano_samples),
           plot_genes         = or_NULL(input$plot_genes),
           label_column       = or_NULL(input$label_col),

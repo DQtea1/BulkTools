@@ -6,7 +6,7 @@ OUTRIDER_pipe <- function(rnafilt_counts,
                           clinic_annot,
                           output_dir,
                           samples_to_exclude = NULL,
-                          confounders        = NULL,
+                          required_annotation_fields = NULL,
                           volcano_samples    = NULL,
                           plot_genes         = NULL,
                           iterations         = 3,
@@ -43,16 +43,19 @@ OUTRIDER_pipe <- function(rnafilt_counts,
     stop("No samples shared between rnafilt_counts columns and clinic_annot.")
   }
 
-  if (!is.null(confounders) && length(confounders) > 0) {
-    missing_cols <- setdiff(confounders, colnames(clinic_annot))
+  # OUTRIDER's controlForConfounders() learns latent confounders from the
+  # expression matrix. It does not accept a clinical design/covariate matrix.
+  # Selected annotation fields therefore serve only as a complete-case filter.
+  if (!is.null(required_annotation_fields) && length(required_annotation_fields) > 0) {
+    missing_cols <- setdiff(required_annotation_fields, colnames(clinic_annot))
     if (length(missing_cols) > 0) {
-      stop(sprintf("Confounder column(s) not in clinic_annot: %s",
+      stop(sprintf("Required annotation field(s) not in clinic_annot: %s",
                    paste(missing_cols, collapse = ", ")))
     }
-    keep <- complete.cases(clinic_annot[common_samples, confounders, drop = FALSE])
+    keep <- complete.cases(clinic_annot[common_samples, required_annotation_fields, drop = FALSE])
     common_samples <- common_samples[keep]
     if (length(common_samples) == 0) {
-      stop("All samples were dropped because of NA values in the selected confounders.")
+      stop("All samples were dropped because of NA values in the required annotation fields.")
     }
   }
 

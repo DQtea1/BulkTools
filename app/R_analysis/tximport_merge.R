@@ -14,6 +14,10 @@ strip_tx_id <- function(x) {
   sub("\\.[0-9]+(_[0-9]+)?$", "", as.character(x))
 }
 
+# Strip the Ensembl version (and GENCODE "_PAR_Y" is kept distinct):
+# ENSG00000223972.5 -> ENSG00000223972 ; ENSG00000182378.14_PAR_Y -> ENSG00000182378_PAR_Y
+strip_gene_id <- function(x) sub("\\.[0-9]+", "", as.character(x))
+
 load_tx2gene_from_gtf <- function(gtf_path) {
   library(data.table)
 
@@ -34,22 +38,52 @@ load_tx2gene_from_gtf <- function(gtf_path) {
     stop(sprintf("No 'transcript' features parsed from GTF '%s'.", gtf_path))
   }
 
-  has_gn  <- grepl('gene_name "', attr_dt$attr, fixed = TRUE)
-  attr_dt <- attr_dt[has_gn]
+  # Keep every transcript (all have a transcript_id + gene_id); gene_name may be
+  # absent for loci without an HGNC symbol, so it is allowed to be NA.
+  attr_dt <- attr_dt[grepl('transcript_id "', attr, fixed = TRUE)]
 
-  tx <- sub('.*transcript_id "([^"]+)".*', "\\1", attr_dt$attr)
-  gn <- sub('.*gene_name "([^"]+)".*',     "\\1", attr_dt$attr)
+  tx  <- sub('.*transcript_id "([^"]+)".*', "\\1", attr_dt$attr)
+  gid <- ifelse(grepl('gene_id "', attr_dt$attr, fixed = TRUE),
+                sub('.*gene_id "([^"]+)".*', "\\1", attr_dt$attr), NA_character_)
+  gn  <- ifelse(grepl('gene_name "', attr_dt$attr, fixed = TRUE),
+                sub('.*gene_name "([^"]+)".*', "\\1", attr_dt$attr), NA_character_)
 
-  map <- data.table(tx_base = strip_tx_id(tx), gene_name = gn)
+  map <- data.table(tx_base      = strip_tx_id(tx),
+                    gene_id_base = strip_gene_id(gid),
+                    gene_name    = gn)
   map[!duplicated(tx_base)]
 }
 
+# ENST -> HGNC symbol (used as a per-file fallback when the gene-name column is
+# unusable). Transcripts without a gene_name are dropped.
 build_fallback_tx2gene <- function(file_tx_ids, gtf_map) {
   file_tx_ids <- as.character(file_tx_ids)
   base <- strip_tx_id(file_tx_ids)
   gene <- gtf_map$gene_name[match(base, gtf_map$tx_base)]
   ok   <- !is.na(gene) & nzchar(gene)
   data.frame(tx = file_tx_ids[ok], gene = gene[ok], stringsAsFactors = FALSE)
+}
+
+# ENST -> ENSG (stable gene id), for the homogenize-to-HGNC mode: every sample is
+# collapsed to the SAME Ensembl-gene namespace regardless of its own gene column.
+build_ensg_tx2gene <- function(file_tx_ids, gtf_map) {
+  file_tx_ids <- as.character(file_tx_ids)
+  base <- strip_tx_id(file_tx_ids)
+  gid  <- gtf_map$gene_id_base[match(base, gtf_map$tx_base)]
+  ok   <- !is.na(gid) & nzchar(gid)
+  data.frame(tx = file_tx_ids[ok], gene = gid[ok], stringsAsFactors = FALSE)
+}
+
+# Relabel an ENSG-indexed matrix to HGNC symbols (keeping the ENSG id when a gene
+# has no symbol), collapsing rows that map to the same label by summing.
+relabel_ensg_to_hgnc <- function(mat, gtf_map) {
+  gm  <- as.data.frame(gtf_map)
+  gm  <- gm[!is.na(gm$gene_id_base) & !duplicated(gm$gene_id_base),
+            c("gene_id_base", "gene_name"), drop = FALSE]
+  base <- strip_gene_id(rownames(mat))          # rownames are already gene_id_base
+  sym  <- gm$gene_name[match(base, gm$gene_id_base)]
+  lbl  <- ifelse(!is.na(sym) & nzchar(sym), sym, base)
+  as.matrix(rowsum(mat, group = lbl))
 }
 
 
@@ -70,9 +104,20 @@ tximport_merge_pipe <- function(bulk_folder,
                                 min_seq_depth = 30000000,
                                 remove_gene_classes = NULL,
                                 tx2gene_fallback_gtf = NULL,
+                                homogenize_to_hgnc = FALSE,
                                 progress_cb = NULL) {
   library(tximport)
   library(ggplot2)
+
+  # Homogenize mode needs the GTF up front (it drives ENST -> ENSG for every file).
+  if (isTRUE(homogenize_to_hgnc) &&
+      (is.null(tx2gene_fallback_gtf) || !nzchar(tx2gene_fallback_gtf) ||
+       !file.exists(tx2gene_fallback_gtf))) {
+    stop(sprintf(
+      "Homogenize-to-HGNC mode requires a valid GENCODE GTF to map ENST -> ENSG, but it was not found: '%s'.",
+      if (is.null(tx2gene_fallback_gtf)) "NULL" else tx2gene_fallback_gtf
+    ))
+  }
 
   # Optional progress reporter: progress_cb(frac, detail) with frac in [0, 1].
   # No-op when called outside Shiny (progress_cb left NULL).
@@ -173,7 +218,16 @@ tximport_merge_pipe <- function(bulk_folder,
     gene_col <- if (tx_geneIdCol %in% colnames(ex)) as.character(ex[[tx_geneIdCol]]) else as.character(ex[[2]])
     gene_usable <- mean(!is.na(gene_col) & nzchar(trimws(gene_col))) > 0.5
 
-    if (gene_usable) {
+    if (isTRUE(homogenize_to_hgnc)) {
+      # Ignore the file's own gene column: map ENST -> ENSG from the GTF so every
+      # sample lands in the same Ensembl-gene namespace. Relabelled to HGNC after
+      # the merge.
+      tx2gene_i  <- build_ensg_tx2gene(tx_col, get_gtf_map())
+      ignoreTx_i <- FALSE   # tx2gene already holds the file's exact tx IDs
+      if (nrow(tx2gene_i) == 0) {
+        warning(sprintf("Sample '%s': no transcript mapped to ENSG via the GTF (are the IDs really ENST?).", sid))
+      }
+    } else if (gene_usable) {
       tx2gene_i  <- data.frame(tx = tx_col, gene = gene_col, stringsAsFactors = FALSE)
       ignoreTx_i <- tx_ignoreTxVersion
     } else {
@@ -239,6 +293,16 @@ tximport_merge_pipe <- function(bulk_folder,
 
   RNAseq_counts <- assemble_matrix(counts_list, all_genes, fill = 0)
   RNAseq_TPM    <- assemble_matrix(tpm_list,    all_genes, fill = 0)
+
+  ## 2a-bis) Homogenize mode: matrices are ENSG-indexed -> relabel to HGNC symbols
+  ##         (ENSG kept when a gene has no symbol) before VST / filters / class drops,
+  ##         so downstream steps (e.g. RPS/RPL/MT removal) still key on symbols.
+  if (isTRUE(homogenize_to_hgnc)) {
+    report(0.72, "relabelling ENSG -> HGNC symbols")
+    gtf_map_h     <- get_gtf_map()
+    RNAseq_counts <- relabel_ensg_to_hgnc(RNAseq_counts, gtf_map_h)
+    RNAseq_TPM    <- relabel_ensg_to_hgnc(RNAseq_TPM,    gtf_map_h)
+  }
 
   ## 2b) Drop samples that are empty once counts are rounded to integers (which
   ##     is what VST receives). These are failed / near-empty quant files, or a
@@ -375,8 +439,15 @@ tximport_merge_pipe <- function(bulk_folder,
             paste(recovered_samples, collapse = ", "))
   }
 
+  gene_id_mode_line <- if (isTRUE(homogenize_to_hgnc)) {
+    "Gene ID mode              : ENST -> ENSG (GTF) -> HGNC symbol (homogeneous)"
+  } else {
+    "Gene ID mode              : file 'Gene_name' column (+ GTF fallback)"
+  }
+
   summary_text <- paste(
     sprintf("Input files matching '%s' : %d", file_strip, length(bulk_files)),
+    gene_id_mode_line,
     recovered_line,
     zero_sample_line,
     sprintf("Working matrix             : %d genes x %d samples",

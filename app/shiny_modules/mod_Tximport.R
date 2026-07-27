@@ -29,7 +29,16 @@ mod_tximport_ui <- function(id) {
           textInput(ns("abundanceCol"), "abundanceCol :", value = "TPM"),
           textInput(ns("countsCol"),    "countsCol :",    value = "NumReads"),
           textInput(ns("lengthCol"),    "lengthCol :",    value = "Length"),
-          checkboxInput(ns("ignoreTxVersion"), "ignoreTxVersion", value = FALSE)
+          checkboxInput(ns("ignoreTxVersion"), "ignoreTxVersion", value = FALSE),
+          tags$hr(),
+          checkboxInput(ns("homogenize_hgnc"),
+                        "Homogenize gene IDs to HGNC (ENST → ENSG via GTF → symbol)",
+                        value = FALSE),
+          tags$small(class = "text-muted",
+                     "Ignores each file's gene column and maps transcripts to a single ",
+                     "Ensembl-gene namespace via the bundled GENCODE GTF, then labels in ",
+                     "HGNC (Ensembl id kept when a gene has no symbol). Use it when inputs ",
+                     "have ENST transcript ids and mixed gene naming.")
         ),
 
         accordion_panel(
@@ -119,6 +128,7 @@ mod_tximport_server <- function(id, roots = c(home = "~")) {
           min_seq_depth          = input$min_seq_depth,
           remove_gene_classes    = or_NULL(input$remove_gene_classes),
           tx2gene_fallback_gtf   = tx2gene_fallback_gtf,
+          homogenize_to_hgnc     = isTRUE(input$homogenize_hgnc),
           progress_cb            = function(frac, detail) {
             setProgress(value = frac, detail = detail)
           }

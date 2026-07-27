@@ -190,6 +190,7 @@ def plot_sample_signature_confidence(
             "thr_boot": "Densité thresholds bootstrap",
             "dens_nr": "Densité scores non-répondeurs",
             "dens_r": "Densité scores répondeurs",
+            "ref_box": "Cohorte de référence (quantiles 10-25-50-75-90%)",
             "pred_nr": "Non-répondeur",
             "pred_r": "Répondeur",
             "title": "Confiance de prédiction sur score de signature",
@@ -213,6 +214,7 @@ def plot_sample_signature_confidence(
             "thr_boot": "Bootstrap threshold density",
             "dens_nr": "Non-responder score density",
             "dens_r": "Responder score density",
+            "ref_box": "Reference cohort (quantiles 10-25-50-75-90%)",
             "pred_nr": "Non-responder",
             "pred_r": "Responder",
             "title": "Prediction confidence on signature score",
@@ -328,10 +330,14 @@ def plot_sample_signature_confidence(
     d_resp = _kde_gaussian_manual(s_resp, grid)
     d_thr = _kde_gaussian_manual(thr_boot_raw, grid) if thr_boot_raw.size > 1 else np.zeros_like(grid)
 
-    # Vertical layout in top axis
+    # Vertical layout in top axis (bottom -> top):
+    #   [rect_y0 .. rect_h]        reference points + gray-zone shading
+    #   [thr_base .. +thr_h]       bootstrap-threshold ("gray zone") density
+    #   [ref-cohort boxplot band]  whole-cohort quantile summary (see below)
+    #   [cls_base .. +cls_h]       responder / non-responder densities
     rect_y0, rect_h = 0.00, 1.00
     thr_base, thr_h = 1.10, 0.55
-    cls_base, cls_h = 1.85, 1.10
+    cls_base, cls_h = 2.05, 1.10
 
     y_thr_curve = thr_base + _scale_density(d_thr, thr_h)
     y_non_curve = cls_base + _scale_density(d_non, cls_h)
@@ -401,6 +407,30 @@ def plot_sample_signature_confidence(
     if thr_boot_raw.size > 1:
         ax.plot(grid, y_thr_curve, color="0.35", lw=2.0, ls="--", label=L["thr_boot"])
         ax.fill_between(grid, thr_base, y_thr_curve, color="0.35", alpha=alpha_threshold_density)
+
+    # Reference-cohort summary boxplot (whole cohort = responders + non-responders),
+    # placed in the band between the bootstrap-threshold density and the class
+    # densities. Whiskers span the 10-90% quantiles, the box the 25-75% quantiles,
+    # with a median (50%) line and caps at the 10% and 90% marks.
+    ref_all = scores_raw[np.isfinite(scores_raw)]
+    if ref_all.size >= 2:
+        q10, q25, q50, q75, q90 = np.nanpercentile(ref_all, [10, 25, 50, 75, 90])
+        box_center = (thr_base + thr_h + cls_base) / 2.0
+        box_half = 0.10
+        box_color = "#6A51A3"  # purple: distinct from R (blue) / NR (red) / query (green)
+        # whiskers 10% - 90%
+        ax.plot([q10, q90], [box_center, box_center], color=box_color, lw=1.6, zorder=5)
+        # caps at 10% and 90%
+        for qx in (q10, q90):
+            ax.plot([qx, qx], [box_center - box_half * 0.6, box_center + box_half * 0.6],
+                    color=box_color, lw=1.6, zorder=5)
+        # box 25% - 75%
+        ax.add_patch(Rectangle(
+            (q25, box_center - box_half), q75 - q25, 2 * box_half,
+            facecolor=box_color, edgecolor=box_color, alpha=0.28, lw=1.6, zorder=5))
+        # median 50%
+        ax.plot([q50, q50], [box_center - box_half, box_center + box_half],
+                color=box_color, lw=2.2, zorder=6, label=L["ref_box"])
 
     # Vertical lines: threshold + gray boundaries + query
     ax.axvline(thr_raw, color="black", lw=2.0, ls="-", label=L["threshold"])

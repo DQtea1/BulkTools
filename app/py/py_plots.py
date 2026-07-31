@@ -17,13 +17,13 @@ import py.py_models as pyM
 
 def plot_sample_signature_confidence(
     query_scores,
-    res_v2: dict,
+    cv_result: dict,
     query_ids=None,
     confidence_res: dict = None,
     confidence_kwargs: dict = None,
     # Threshold bootstrap density (visualization only)
     n_bootstrap_threshold_plot: int = 1000,
-    threshold_criterion: str = "youden",
+    threshold_criterion=None,  # None => read from cv_result["config"] (the rule the CV actually used)
     bootstrap_seed: int = 123,
     bootstrap_stratified: bool = True,
     # Text / style
@@ -51,8 +51,8 @@ def plot_sample_signature_confidence(
     ----------
     query_scores : scalar or list-like
         Raw score(s) to highlight in green.
-    res_v2 : dict
-        Output of nested_cv_signature_v2(..., return_oof_predictions=True).
+    cv_result : dict
+        Output of evaluate_signature_threshold_cv(..., return_oof_predictions=True).
     query_ids : list-like, optional
         IDs for query samples. If None, auto-generated.
     confidence_res : dict, optional
@@ -178,7 +178,7 @@ def plot_sample_signature_confidence(
     # ---------------------------------------------------------------------
     # Labels
     # ---------------------------------------------------------------------
-    L = {
+    TXT = {
         "fr": {
             "nr": "Non-répondeurs",
             "r": "Répondeurs",
@@ -187,6 +187,7 @@ def plot_sample_signature_confidence(
             "prob_axis": "Probabilité calibrée P(réponse=1 | score)",
             "gray_zone": "Zone grise",
             "threshold": "Seuil (binaire)",
+            "prob_decision": "Frontière de décision",
             "thr_boot": "Densité thresholds bootstrap",
             "dens_nr": "Densité scores non-répondeurs",
             "dens_r": "Densité scores répondeurs",
@@ -211,6 +212,7 @@ def plot_sample_signature_confidence(
             "prob_axis": "Calibrated probability P(response=1 | score)",
             "gray_zone": "Gray zone",
             "threshold": "Threshold (binary)",
+            "prob_decision": "Decision boundary",
             "thr_boot": "Bootstrap threshold density",
             "dens_nr": "Non-responder score density",
             "dens_r": "Responder score density",
@@ -230,18 +232,24 @@ def plot_sample_signature_confidence(
     }["fr" if language.lower().startswith("fr") else "en"]
 
     # ---------------------------------------------------------------------
-    # Validate res_v2
+    # Validate cv_result
     # ---------------------------------------------------------------------
-    if "oof" not in res_v2:
-        raise ValueError("res_v2 must contain 'oof'. Run nested_cv_signature_v2(..., return_oof_predictions=True).")
+    if "oof" not in cv_result:
+        raise ValueError("cv_result must contain 'oof'. Run evaluate_signature_threshold_cv(..., return_oof_predictions=True).")
 
-    oof = res_v2["oof"].copy()
+    oof = cv_result["oof"].copy()
     needed = {"y_true", "score_raw_original", "score_used_oriented"}
     if not needed.issubset(oof.columns):
-        raise ValueError(f"res_v2['oof'] must contain columns {needed}")
+        raise ValueError(f"cv_result['oof'] must contain columns {needed}")
 
-    if "fold_thresholds" not in res_v2 or len(res_v2["fold_thresholds"]) == 0:
-        raise ValueError("res_v2 must contain non-empty 'fold_thresholds'.")
+    if "fold_thresholds" not in cv_result or len(cv_result["fold_thresholds"]) == 0:
+        raise ValueError("cv_result must contain non-empty 'fold_thresholds'.")
+
+    # Threshold rule: default to whatever the CV run actually used, so the
+    # bootstrap threshold density drawn below describes the same rule that
+    # produced cv_result["fold_thresholds"] and the vertical threshold line.
+    if threshold_criterion is None:
+        threshold_criterion = (cv_result.get("config", {}) or {}).get("threshold_criterion", "youden")
 
     # ---------------------------------------------------------------------
     # Query scores & confidence report
@@ -262,25 +270,34 @@ def plot_sample_signature_confidence(
         ck.setdefault("use_gray_zone", True)
         confidence_res = pyM.sample_confidence_report(
             scores=query_scores,
-            res_v2=res_v2,
+            cv_result=cv_result,
             sample_ids=query_ids,
             **ck
         )
 
-    rep = confidence_res["report"].copy()
+    report_df = confidence_res["report"].copy()
 
     # ---------------------------------------------------------------------
     # Axis orientation / thresholds on raw scale
     # ---------------------------------------------------------------------
     sign = _infer_orientation_sign_from_oof(oof)  # oriented = sign * raw
-    thr_oriented = float(np.median(np.asarray(res_v2["fold_thresholds"], dtype=float)))
+    thr_oriented = float(np.median(np.asarray(cv_result["fold_thresholds"], dtype=float)))
     thr_raw = sign * thr_oriented
 
-    gray_available = ("gray_zone" in res_v2) and (res_v2["gray_zone"] is not None)
-    if gray_available and "fold_gray_thresholds" in res_v2["gray_zone"] and len(res_v2["gray_zone"]["fold_gray_thresholds"]) > 0:
-        fg = np.asarray(res_v2["gray_zone"]["fold_gray_thresholds"], dtype=float)
-        t_low_raw = sign * float(np.median(fg[:, 0]))
-        t_high_raw = sign * float(np.median(fg[:, 1]))
+    gray_available = ("gray_zone" in cv_result) and (cv_result["gray_zone"] is not None)
+    if gray_available and "fold_gray_thresholds" in cv_result["gray_zone"] and len(cv_result["gray_zone"]["fold_gray_thresholds"]) > 0:
+        fold_gray = np.asarray(cv_result["gray_zone"]["fold_gray_thresholds"], dtype=float)
+        # Must be the SAME coherent pair the report uses, otherwise the shaded
+        # band on the plot and the pred_gray_label in the table describe
+        # different zones. Independent medians of the two columns can produce a
+        # band no fold ever produced; gray_zone["t_low_final"] is the medoid
+        # pair. Fall back to medians only for pre-#11 result dicts.
+        t_low_medoid = float(cv_result["gray_zone"].get("t_low_final", np.nan))
+        t_high_medoid = float(cv_result["gray_zone"].get("t_high_final", np.nan))
+        if not (np.isfinite(t_low_medoid) and np.isfinite(t_high_medoid)):
+            t_low_medoid, t_high_medoid = float(np.median(fold_gray[:, 0])), float(np.median(fold_gray[:, 1]))
+        t_low_raw = sign * t_low_medoid
+        t_high_raw = sign * t_high_medoid
     else:
         t_low_raw = np.nan
         t_high_raw = np.nan
@@ -370,16 +387,16 @@ def plot_sample_signature_confidence(
             (x0, rect_y0), x1 - x0, rect_h,
             facecolor="gold", edgecolor=None, alpha=0.20
         ))
-        ax.text((x0 + x1) / 2, rect_y0 + rect_h + 0.03, L["gray_zone"],
+        ax.text((x0 + x1) / 2, rect_y0 + rect_h + 0.03, TXT["gray_zone"],
                 ha="center", va="bottom", fontsize=10, color="darkgoldenrod")
 
     # Reference jitter points
     mask_non = (y == 0)
     mask_resp = (y == 1)
     ax.scatter(scores_raw[mask_non], y_pts[mask_non], s=point_size_ref,
-               color="red", alpha=alpha_ref, edgecolor="none", label=L["nr"])
+               color="red", alpha=alpha_ref, edgecolor="none", label=TXT["nr"])
     ax.scatter(scores_raw[mask_resp], y_pts[mask_resp], s=point_size_ref,
-               color="blue", alpha=alpha_ref, edgecolor="none", label=L["r"])
+               color="blue", alpha=alpha_ref, edgecolor="none", label=TXT["r"])
 
     # Query points (green)
     # slight vertical offsets if multiple points
@@ -389,7 +406,7 @@ def plot_sample_signature_confidence(
         offsets = np.linspace(-0.10, 0.10, n_query)
         yq = rect_y0 + rect_h * 0.5 + offsets
     ax.scatter(query_scores, yq, s=point_size_query, color="green",
-               edgecolor="black", linewidth=0.8, zorder=6, label=L["query"])
+               edgecolor="black", linewidth=0.8, zorder=6, label=TXT["query"])
 
     # Label query IDs (small)
     for xi, yi, qid in zip(query_scores, yq, query_ids):
@@ -397,15 +414,15 @@ def plot_sample_signature_confidence(
                 ha="center", va="bottom")
 
     # Class densities
-    ax.plot(grid, y_non_curve, color="red", lw=2.0, label=L["dens_nr"])
+    ax.plot(grid, y_non_curve, color="red", lw=2.0, label=TXT["dens_nr"])
     ax.fill_between(grid, cls_base, y_non_curve, color="red", alpha=alpha_density_fill)
 
-    ax.plot(grid, y_resp_curve, color="blue", lw=2.0, label=L["dens_r"])
+    ax.plot(grid, y_resp_curve, color="blue", lw=2.0, label=TXT["dens_r"])
     ax.fill_between(grid, cls_base, y_resp_curve, color="blue", alpha=alpha_density_fill)
 
     # Threshold bootstrap density
     if thr_boot_raw.size > 1:
-        ax.plot(grid, y_thr_curve, color="0.35", lw=2.0, ls="--", label=L["thr_boot"])
+        ax.plot(grid, y_thr_curve, color="0.35", lw=2.0, ls="--", label=TXT["thr_boot"])
         ax.fill_between(grid, thr_base, y_thr_curve, color="0.35", alpha=alpha_threshold_density)
 
     # Reference-cohort summary boxplot (whole cohort = responders + non-responders),
@@ -430,10 +447,10 @@ def plot_sample_signature_confidence(
             facecolor=box_color, edgecolor=box_color, alpha=0.28, lw=1.6, zorder=5))
         # median 50%
         ax.plot([q50, q50], [box_center - box_half, box_center + box_half],
-                color=box_color, lw=2.2, zorder=6, label=L["ref_box"])
+                color=box_color, lw=2.2, zorder=6, label=TXT["ref_box"])
 
     # Vertical lines: threshold + gray boundaries + query
-    ax.axvline(thr_raw, color="black", lw=2.0, ls="-", label=L["threshold"])
+    ax.axvline(thr_raw, color="black", lw=2.0, ls="-", label=TXT["threshold"])
     if gray_available and np.isfinite(t_low_raw) and np.isfinite(t_high_raw):
         ax.axvline(t_low_raw, color="darkgoldenrod", lw=1.6, ls=":")
         ax.axvline(t_high_raw, color="darkgoldenrod", lw=1.6, ls=":")
@@ -445,15 +462,15 @@ def plot_sample_signature_confidence(
     ax.set_xlim(*xlim)
     ax.set_ylim(-0.12, cls_base + cls_h + 0.30)
     ax.set_yticks([])
-    ax.set_xlabel(L["score_axis"])
+    ax.set_xlabel(TXT["score_axis"])
     ax.grid(axis="x", alpha=0.15)
 
     if title is None:
-        title = L["title"]
+        title = TXT["title"]
     ax.set_title(title, fontsize=13, weight="bold", pad=12)
 
     if subtitle is None:
-        subtitle = L["subtitle_default"]
+        subtitle = TXT["subtitle_default"]
     ax.text(0.0, 1.02, subtitle, transform=ax.transAxes,
             ha="left", va="bottom", fontsize=9.5, color="0.35")
 
@@ -466,18 +483,30 @@ def plot_sample_signature_confidence(
     axp.set_xlim(0, 1)
     axp.set_ylim(0, 1)
     axp.set_yticks([])
-    axp.set_xlabel(L["prob_axis"])
+    axp.set_xlabel(TXT["prob_axis"])
 
-    # Background bar + midline
+    # Background bar + DECISION BOUNDARY.
+    # This line must sit at p_at_threshold, not at 0.5: the binary call is
+    # "score >= threshold", i.e. "p >= P(responder | score = threshold)", and
+    # Youden's threshold only lands on p = 0.5 for a balanced cohort. Drawing it
+    # at 0.5 put query points on the visually wrong side of the boundary
+    # (measured: the real boundary is p ~= 0.21 at 8 responders / 32 non).
+    p_decision = float(confidence_res.get("reference_info", {}).get("p_at_threshold", np.nan))
+    if not np.isfinite(p_decision) and "p_at_threshold" in report_df.columns:
+        p_decision = float(report_df["p_at_threshold"].iloc[0])
+    if not np.isfinite(p_decision):
+        p_decision = 0.5   # pre-#3 result dict: fall back to the old behaviour
     axp.add_patch(Rectangle((0, 0.30), 1.0, 0.40, facecolor="0.92", edgecolor="0.30", alpha=0.45))
-    axp.axvline(0.5, color="black", lw=1.0, ls="--", alpha=0.7)
+    axp.axvline(p_decision, color="black", lw=1.4, ls="--", alpha=0.85)
+    axp.text(p_decision, 0.74, f"{TXT['prob_decision']} (p={p_decision:.2f})",
+             ha="center", va="bottom", fontsize=8, color="0.25")
 
     # plot each query sample probability + CI
     y_levels = np.linspace(0.62, 0.38, n_query) if n_query > 1 else np.array([0.50])
 
     p_rows = []
     for i, qid in enumerate(query_ids):
-        r = rep.loc[qid]
+        r = report_df.loc[qid]
         p_val = float(r["p_calibrated_logit"] if "p_calibrated_logit" in r.index else r["p"])
         low_col, high_col = _find_ci_cols(r.index, "p")
         p_low = float(r[low_col]) if low_col else np.nan
@@ -499,8 +528,8 @@ def plot_sample_signature_confidence(
         p_rows.append((qid, p_val, p_low, p_high))
 
     # Left/right class labels
-    axp.text(0.00, 0.05, L["pred_nr"], color="red", ha="left", va="bottom", fontsize=9)
-    axp.text(1.00, 0.05, L["pred_r"], color="blue", ha="right", va="bottom", fontsize=9)
+    axp.text(0.00, 0.05, TXT["pred_nr"], color="red", ha="left", va="bottom", fontsize=9)
+    axp.text(1.00, 0.05, TXT["pred_r"], color="blue", ha="right", va="bottom", fontsize=9)
 
     # Remove spines
     for sp in ["top", "right", "left"]:
@@ -509,30 +538,30 @@ def plot_sample_signature_confidence(
     # ---------------------------------------------------------------------
     # Side annotation table (first query sample summary only, compact)
     # ---------------------------------------------------------------------
-    r0 = rep.loc[query_ids[0]]
-    low_col, high_col = _find_ci_cols(r0.index, "p")
-    p_low0 = float(r0[low_col]) if low_col else np.nan
-    p_high0 = float(r0[high_col]) if high_col else np.nan
+    first_row = report_df.loc[query_ids[0]]
+    low_col, high_col = _find_ci_cols(first_row.index, "p")
+    p_low0 = float(first_row[low_col]) if low_col else np.nan
+    p_high0 = float(first_row[high_col]) if high_col else np.nan
 
-    pred_lbl = str(r0.get("pred_label", "NA"))
-    conf0 = float(r0.get("confidence", np.nan))
-    amb0 = float(r0.get("ambiguity", np.nan))
-    margin0 = float(r0.get("margin", np.nan))
-    cer0 = float(r0.get("conditional_error_risk", np.nan))
-    gz_lbl0 = str(r0.get("pred_gray_label", "not_available"))
+    pred_lbl = str(first_row.get("pred_label", "NA"))
+    conf0 = float(first_row.get("confidence", np.nan))
+    amb0 = float(first_row.get("ambiguity", np.nan))
+    margin0 = float(first_row.get("margin", np.nan))
+    cer0 = float(first_row.get("conditional_error_risk", np.nan))
+    gz_lbl0 = str(first_row.get("pred_gray_label", "not_available"))
 
-    info = (f"{L['pred']}: {pred_lbl}\n")
+    info = (f"{TXT['pred']}: {pred_lbl}\n")
     if gray_available:
-        info += f"{L['gray']}: {gz_lbl0}\n"
-    info += f"{L['p']}: {float(r0.get('p', r0.get('p_calibrated_logit', np.nan))):.3f}"
+        info += f"{TXT['gray']}: {gz_lbl0}\n"
+    info += f"{TXT['p']}: {float(first_row.get('p', first_row.get('p_calibrated_logit', np.nan))):.3f}"
     
     if np.isfinite(p_low0) and np.isfinite(p_high0):
         info += f" [{p_low0:.3f}, {p_high0:.3f}]"
     info += (
-        # f"\n{L['conf']}: {conf0:.3f}"
-        # f"\n{L['amb']}: {amb0:.3f}"
-        f"\n{L['margin']}: {margin0:.3f}"
-        # f"\n{L['cer']}: {cer0:.3f}"
+        # f"\n{TXT['conf']}: {conf0:.3f}"
+        # f"\n{TXT['amb']}: {amb0:.3f}"
+        f"\n{TXT['margin']}: {margin0:.3f}"
+        # f"\n{TXT['cer']}: {cer0:.3f}"
     )
 
     ax.text(
@@ -553,7 +582,7 @@ def plot_sample_signature_confidence(
     return {
         "fig": fig,
         "axes": (ax, axp),
-        "confidence_report": rep,
+        "confidence_report": report_df,
         "threshold_boot_raw": thr_boot_raw,
         "threshold_raw": thr_raw,
         "gray_t_low_raw": t_low_raw,

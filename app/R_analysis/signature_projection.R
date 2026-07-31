@@ -163,13 +163,13 @@ signature_proj_pipe = function(rnafilt_counts, clinic_annot,
 
 
     report(0.55, "nested cross-validation (this can take a while)")
-    res_nested_cv = nested_cv_signature(
+    cv_result = evaluate_signature_threshold_cv(
                                         df_scores                = reference_scores[rownames(reference_scores) %in% ID_ref_samples, ],                         # index = sample IDs
                                         sample_ID_responders     = responder_ids,
                                         sample_ID_non_responders = non_responder_ids,
                                         score_col                = "score",
-                                        n_outer                  = 20,
-                                        n_inner                  = 20,
+                                        n_folds                  = 20,
+                                        n_subsamples             = 20,
                                         threshold_criterion      = "youden",
                                         use_gray_zone            = TRUE,
                                         gray_target_sensitivity  = 0.90,
@@ -188,7 +188,7 @@ signature_proj_pipe = function(rnafilt_counts, clinic_annot,
 
     conf_report = sample_confidence_report(
                                            scores                  = unname(query_scores),
-                                           res_nested_cv_signature = res_nested_cv,
+                                           cv_result               = cv_result,
                                            sample_ids              = query_ids_py,
                                            n_bootstrap             = 1000
                                            )
@@ -200,7 +200,7 @@ signature_proj_pipe = function(rnafilt_counts, clinic_annot,
     report(0.8, "building projection + confidence plot")
     proj_plot = plot_sample_signature_confidence(
                                                  query_scores       = unname(query_scores),
-                                                 res_v2             = res_nested_cv,
+                                                 cv_result          = cv_result,
                                                  query_ids          = query_ids_py,
                                                  confidence_res     = conf_report,
                                                  confidence_kwargs  = list(n_bootstrap = 1000, use_gray_zone = TRUE),
